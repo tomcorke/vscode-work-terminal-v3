@@ -223,6 +223,7 @@ describe("TerminalSessionStore", () => {
     await waitForPersistedSessionCount(store, 0);
     expect(onChange).toHaveBeenCalledTimes(2);
     expect(store.getSummary().sessions).toHaveLength(0);
+    expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
 
     disposable.dispose();
     store.dispose();
@@ -278,6 +279,65 @@ describe("TerminalSessionStore", () => {
     expect(persistedContent).toContain(originalResumeSessionId);
 
     restoredStore.dispose();
+  });
+
+  it("reopens recently closed shell sessions", async () => {
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const session = await store.createShellSession("item-1", "Demo item", null, "/workspace");
+    closeListeners[0]?.(createdTerminals[0]);
+    await waitForPersistedSessionCount(store, 0);
+    await vi.waitFor(() => {
+      expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
+    });
+
+    const reopened = await store.reopenRecentlyClosedSession(session.id);
+
+    expect(reopened.error).toBeNull();
+    expect(reopened.session?.id).toBe(session.id);
+    expect(store.getSummary().recentlyClosedSessions).toHaveLength(0);
+    expect(store.getSummary().sessions).toHaveLength(1);
+    expect(createdTerminals[1].show).toHaveBeenCalledWith(true);
+
+    store.dispose();
+  });
+
+  it("reopens recently closed Claude sessions with the same resume session id", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude-context",
+    });
+    const originalResumeSessionId = result.session?.resumeSessionId;
+
+    closeListeners[0]?.(createdTerminals[0]);
+    await waitForPersistedSessionCount(store, 0);
+    await vi.waitFor(() => {
+      expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
+    });
+
+    const reopened = await store.reopenRecentlyClosedSession(result.session!.id);
+
+    expect(reopened.error).toBeNull();
+    expect(reopened.session?.resumeSessionId).toBe(originalResumeSessionId);
+    expect(createdTerminalOptions[1]).toMatchObject({
+      shellArgs: expect.arrayContaining(["--session-id", originalResumeSessionId]),
+      shellPath: process.execPath,
+    });
+
+    store.dispose();
   });
 });
 

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  type RecentlyClosedTerminalSession,
   TerminalSessionPersistence,
   type PersistedTerminalSession,
 } from "../../src/terminals/TerminalSessionPersistence";
@@ -53,6 +54,55 @@ describe("TerminalSessionPersistence", () => {
     expect(sessions.map((session) => session.id)).toEqual(["session-2"]);
   });
 
+  it("records recently closed sessions separately from active sessions", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const session = createPersistedSession({ id: "session-1" });
+
+    await persistence.upsertSession(session);
+    await persistence.recordClosedSession(session);
+
+    expect(await persistence.loadSessions()).toEqual([]);
+    expect(await persistence.loadRecentlyClosedSessions()).toEqual([
+      expect.objectContaining({
+        closedAt: expect.any(String),
+        id: "session-1",
+      }),
+    ]);
+  });
+
+  it("prunes stale or excessive recently closed sessions on load", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+    const now = Date.now();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, JSON.stringify({
+      recentlyClosedSessions: [
+        createRecentlyClosedSession({ id: "fresh-1", closedAt: new Date(now).toISOString() }),
+        createRecentlyClosedSession({ id: "fresh-2", closedAt: new Date(now - 1_000).toISOString() }),
+        createRecentlyClosedSession({ id: "stale", closedAt: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString() }),
+        ...Array.from({ length: 12 }, (_, index) =>
+          createRecentlyClosedSession({
+            id: `overflow-${index}`,
+            closedAt: new Date(now - (index + 2) * 1_000).toISOString(),
+          })),
+      ],
+      sessions: [],
+      version: 1,
+    }, null, 2), "utf8");
+
+    const recentlyClosedSessions = await persistence.loadRecentlyClosedSessions();
+
+    expect(recentlyClosedSessions.some((session) => session.id === "stale")).toBe(false);
+    expect(recentlyClosedSessions).toHaveLength(12);
+  });
+
   it("backs up corrupt snapshots before saving new session metadata", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
     tempDirectories.push(workspaceRoot);
@@ -84,6 +134,16 @@ function createPersistedSession(overrides: Partial<PersistedTerminalSession> = {
     profileLabel: null,
     resumeSessionId: null,
     statusLabel: "Local shell session",
+    ...overrides,
+  };
+}
+
+function createRecentlyClosedSession(
+  overrides: Partial<RecentlyClosedTerminalSession> = {},
+): RecentlyClosedTerminalSession {
+  return {
+    ...createPersistedSession(overrides),
+    closedAt: new Date().toISOString(),
     ...overrides,
   };
 }

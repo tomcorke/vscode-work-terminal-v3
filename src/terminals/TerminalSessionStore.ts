@@ -10,6 +10,7 @@ import {
   type AgentProfileSummary,
 } from "../agents";
 import {
+  type RecentlyClosedTerminalSession,
   TerminalSessionPersistence,
   type PersistedTerminalSession,
 } from "./TerminalSessionPersistence";
@@ -30,6 +31,7 @@ export interface TerminalSessionSummary {
 
 export interface TerminalStoreSummary {
   readonly agentProfiles: readonly AgentProfileSummary[];
+  readonly recentlyClosedSessions: readonly RecentlyClosedTerminalSession[];
   readonly sessionCountByItemId: Record<string, number>;
   readonly sessions: readonly TerminalSessionSummary[];
 }
@@ -44,6 +46,7 @@ export class TerminalSessionStore implements vscode.Disposable {
   private readonly closeDisposable: vscode.Disposable;
   private readonly pendingInitialPromptTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly persistence: TerminalSessionPersistence;
+  private recentlyClosedSessions: readonly RecentlyClosedTerminalSession[] = [];
   private readonly sessionsChangedEmitter = new vscode.EventEmitter<void>();
   private readonly sessionsById = new Map<string, StoredTerminalSession>();
 
@@ -68,6 +71,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     itemDescription: string | null,
     cwd: string | undefined,
     options: {
+      readonly emitChange?: boolean;
       readonly existingId?: string;
       readonly persist?: boolean;
       readonly reveal?: boolean;
@@ -109,9 +113,11 @@ export class TerminalSessionStore implements vscode.Disposable {
     };
 
     this.sessionsById.set(id, { persisted, summary, terminal });
-    this.sessionsChangedEmitter.fire();
     if (options.persist !== false) {
       await this.persistSession(persisted);
+    }
+    if (options.emitChange !== false) {
+      this.sessionsChangedEmitter.fire();
     }
 
     if (options.reveal !== false) {
@@ -130,6 +136,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       readonly profileId: AgentProfileId;
     },
     createOptions: {
+      readonly emitChange?: boolean;
       readonly existingId?: string;
       readonly persist?: boolean;
       readonly reveal?: boolean;
@@ -215,9 +222,11 @@ export class TerminalSessionStore implements vscode.Disposable {
     };
 
     this.sessionsById.set(id, { persisted, summary, terminal });
-    this.sessionsChangedEmitter.fire();
     if (createOptions.persist !== false) {
       await this.persistSession(persisted);
+    }
+    if (createOptions.emitChange !== false) {
+      this.sessionsChangedEmitter.fire();
     }
 
     if (createOptions.reveal !== false) {
@@ -250,6 +259,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     readonly skippedCount: number;
   }> {
     const sessions = await this.persistence.loadSessions();
+    this.recentlyClosedSessions = await this.persistence.loadRecentlyClosedSessions();
     let restoredCount = 0;
     let skippedCount = 0;
 
@@ -322,9 +332,69 @@ export class TerminalSessionStore implements vscode.Disposable {
 
     return {
       agentProfiles: getAgentProfileSummaries(vscode.workspace.getConfiguration("workTerminal")),
+      recentlyClosedSessions: this.recentlyClosedSessions,
       sessionCountByItemId,
       sessions,
     };
+  }
+
+  public async reopenRecentlyClosedSession(id: string): Promise<{
+    readonly error: string | null;
+    readonly session: TerminalSessionSummary | null;
+  }> {
+    const recentlyClosed = this.recentlyClosedSessions.find((session) => session.id === id);
+    if (!recentlyClosed) {
+      return {
+        error: "That recently closed session is no longer available.",
+        session: null,
+      };
+    }
+
+    if (recentlyClosed.kind === "shell") {
+      const session = await this.createShellSession(
+        recentlyClosed.itemId,
+        recentlyClosed.itemTitle,
+        recentlyClosed.itemDescription,
+        recentlyClosed.cwd ?? undefined,
+        {
+          emitChange: false,
+          existingId: recentlyClosed.id,
+        },
+      );
+      await this.removeRecentlyClosedSession(id);
+      this.sessionsChangedEmitter.fire();
+      return { error: null, session };
+    }
+
+    if (!recentlyClosed.profileId) {
+      return {
+        error: "That recently closed session can no longer be reopened.",
+        session: null,
+      };
+    }
+
+    const result = await this.createAgentSession(
+      {
+        cwd: recentlyClosed.cwd ?? undefined,
+        itemDescription: recentlyClosed.itemDescription,
+        itemId: recentlyClosed.itemId,
+        itemTitle: recentlyClosed.itemTitle,
+        profileId: recentlyClosed.profileId,
+      },
+      {
+        emitChange: false,
+        existingId: recentlyClosed.id,
+        resumeSessionId: recentlyClosed.resumeSessionId,
+      },
+    );
+
+    if (!result.session) {
+      return result;
+    }
+
+    await this.removeRecentlyClosedSession(id);
+    this.sessionsChangedEmitter.fire();
+    return result;
   }
 
   public dispose(): void {
@@ -345,8 +415,8 @@ export class TerminalSessionStore implements vscode.Disposable {
 
       this.clearPendingInitialPrompt(id);
       this.sessionsById.delete(id);
+      await this.recordClosedSession(session.persisted);
       this.sessionsChangedEmitter.fire();
-      await this.deletePersistedSession(id);
       return;
     }
   }
@@ -361,16 +431,17 @@ export class TerminalSessionStore implements vscode.Disposable {
     this.pendingInitialPromptTimers.delete(id);
   }
 
-  private async deletePersistedSession(id: string): Promise<void> {
+  private async recordClosedSession(session: PersistedTerminalSession): Promise<void> {
     try {
-      await this.persistence.deleteSession(id);
+      await this.persistence.recordClosedSession(session);
+      await this.refreshRecentlyClosedSessions();
     } catch (error) {
       if (isMissingFileError(error)) {
         return;
       }
 
       console.warn(
-        `[work-terminal] Failed to delete persisted terminal session "${id}".`,
+        `[work-terminal] Failed to record recently closed terminal session "${session.id}".`,
         error,
       );
     }
@@ -379,6 +450,7 @@ export class TerminalSessionStore implements vscode.Disposable {
   private async persistSession(session: PersistedTerminalSession): Promise<void> {
     try {
       await this.persistence.upsertSession(session);
+      this.recentlyClosedSessions = this.recentlyClosedSessions.filter((entry) => entry.id !== session.id);
     } catch (error) {
       if (isMissingFileError(error)) {
         return;
@@ -386,6 +458,26 @@ export class TerminalSessionStore implements vscode.Disposable {
 
       console.warn(
         `[work-terminal] Failed to persist terminal session "${session.id}".`,
+        error,
+      );
+    }
+  }
+
+  private async refreshRecentlyClosedSessions(): Promise<void> {
+    this.recentlyClosedSessions = await this.persistence.loadRecentlyClosedSessions();
+  }
+
+  private async removeRecentlyClosedSession(id: string): Promise<void> {
+    try {
+      await this.persistence.removeRecentlyClosedSession(id);
+      this.recentlyClosedSessions = this.recentlyClosedSessions.filter((session) => session.id !== id);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return;
+      }
+
+      console.warn(
+        `[work-terminal] Failed to remove recently closed terminal session "${id}".`,
         error,
       );
     }

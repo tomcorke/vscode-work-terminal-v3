@@ -31,6 +31,20 @@ interface WorkTerminalViewState {
   }>;
   readonly latestWorkItemTitle: string | null;
   readonly selectedItemId: string | null;
+  readonly recentlyClosedSessions: ReadonlyArray<{
+    readonly closedAt: string;
+    readonly command: string | null;
+    readonly id: string;
+    readonly itemDescription: string | null;
+    readonly itemId: string;
+    readonly itemTitle: string;
+    readonly kind: "claude" | "copilot" | "shell";
+    readonly label: string;
+    readonly profileId: string | null;
+    readonly profileLabel: string | null;
+    readonly resumeSessionId: string | null;
+    readonly statusLabel: string;
+  }>;
   readonly status: string;
   readonly storagePath: string | null;
   readonly terminalSessionCountByItemId: Record<string, number>;
@@ -155,6 +169,14 @@ root.addEventListener("click", (event: MouseEvent) => {
     return;
   }
 
+  if (target.dataset.action === "reopen-recent-session") {
+    const sessionId = target.dataset.sessionId;
+    if (sessionId) {
+      vscode.postMessage({ type: "reopen-recent-session-requested", sessionId });
+    }
+    return;
+  }
+
   const card = target.closest<HTMLElement>("[data-work-item-id]");
   if (card) {
     const itemId = card.dataset.workItemId ?? null;
@@ -173,6 +195,9 @@ function render(nextState: WorkTerminalViewState): void {
   const selectedItem = getSelectedItem(nextState);
   const selectedItemSessions = selectedItem
     ? nextState.terminalSessions.filter((session) => session.itemId === selectedItem.id)
+    : [];
+  const selectedItemRecentlyClosedSessions = selectedItem
+    ? nextState.recentlyClosedSessions.filter((session) => session.itemId === selectedItem.id)
     : [];
   rootElement.innerHTML = `
     <div class="app-shell">
@@ -338,6 +363,38 @@ function render(nextState: WorkTerminalViewState): void {
               }
             </article>
             <article class="card">
+              <h3>Recently closed for selected item</h3>
+              ${
+                selectedItem
+                  ? selectedItemRecentlyClosedSessions.length > 0
+                    ? `<ul class="session-list">
+                        ${selectedItemRecentlyClosedSessions
+                          .map(
+                            (session) => `
+                              <li class="session-list-item">
+                                <div>
+                                  <strong>${escapeHtml(session.label)}</strong>
+                                  <p>${escapeHtml(session.statusLabel)}</p>
+                                  <p class="session-meta">${escapeHtml(`${describeSession(session)} · closed ${formatClosedAt(session.closedAt)}`)}</p>
+                                </div>
+                                <button
+                                  class="ghost-button"
+                                  type="button"
+                                  data-action="reopen-recent-session"
+                                  data-session-id="${escapeHtml(session.id)}"
+                                >
+                                  Reopen session
+                                </button>
+                              </li>
+                            `,
+                          )
+                          .join("")}
+                      </ul>`
+                    : `<p>No recently closed sessions are available for "${escapeHtml(selectedItem.title)}".</p>`
+                  : "<p>Select a work item to reopen its recently closed sessions.</p>"
+              }
+            </article>
+            <article class="card">
               <h3>Host-managed sessions</h3>
               <p>${escapeHtml(nextState.status)}</p>
               <p>Shell, Claude, and Copilot sessions opened from the board are tracked here by work item.</p>
@@ -368,6 +425,7 @@ function createFallbackState(): WorkTerminalViewState {
     boardColumns: [],
     columnSummaries: [],
     latestWorkItemTitle: null,
+    recentlyClosedSessions: [],
     selectedItemId: null,
     status: "Scaffold ready",
     storagePath: null,
@@ -398,6 +456,15 @@ function describeSession(session: WorkTerminalViewState["terminalSessions"][numb
   }
 
   return details.join(" · ");
+}
+
+function formatClosedAt(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return new Date(timestamp).toLocaleString();
 }
 
 function capitalize(value: string): string {

@@ -6,6 +6,8 @@ import type { AgentProfileId } from "../agents";
 const STORAGE_DIRECTORY_NAME = ".work-terminal";
 const STORAGE_FILE_NAME = "terminal-sessions.v1.json";
 const SNAPSHOT_VERSION = 1;
+const MAX_RECENTLY_CLOSED_SESSIONS = 12;
+const RECENTLY_CLOSED_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 type PersistedTerminalSessionKind = "claude" | "copilot" | "shell";
 
@@ -24,7 +26,12 @@ export interface PersistedTerminalSession {
   readonly statusLabel: string;
 }
 
+export interface RecentlyClosedTerminalSession extends PersistedTerminalSession {
+  readonly closedAt: string;
+}
+
 interface PersistedTerminalSnapshot {
+  readonly recentlyClosedSessions: readonly RecentlyClosedTerminalSession[];
   readonly sessions: readonly PersistedTerminalSession[];
   readonly version: typeof SNAPSHOT_VERSION;
 }
@@ -47,6 +54,11 @@ export class TerminalSessionPersistence {
     return snapshot.sessions;
   }
 
+  public async loadRecentlyClosedSessions(): Promise<readonly RecentlyClosedTerminalSession[]> {
+    const snapshot = await this.loadSnapshotForRead();
+    return snapshot.recentlyClosedSessions;
+  }
+
   public async deleteSession(id: string): Promise<void> {
     await this.withWriteLock(async () => {
       const snapshot = await this.loadSnapshotForWrite();
@@ -59,11 +71,43 @@ export class TerminalSessionPersistence {
     });
   }
 
+  public async recordClosedSession(session: PersistedTerminalSession): Promise<void> {
+    await this.withWriteLock(async () => {
+      const snapshot = await this.loadSnapshotForWrite();
+      const nextSnapshot: PersistedTerminalSnapshot = {
+        ...snapshot,
+        recentlyClosedSessions: pruneRecentlyClosedSessions([
+          {
+            ...session,
+            closedAt: new Date().toISOString(),
+          },
+          ...snapshot.recentlyClosedSessions.filter((entry) => entry.id !== session.id),
+        ]),
+        sessions: snapshot.sessions.filter((entry) => entry.id !== session.id),
+      };
+
+      await this.saveSnapshot(nextSnapshot);
+    });
+  }
+
+  public async removeRecentlyClosedSession(id: string): Promise<void> {
+    await this.withWriteLock(async () => {
+      const snapshot = await this.loadSnapshotForWrite();
+      const nextSnapshot: PersistedTerminalSnapshot = {
+        ...snapshot,
+        recentlyClosedSessions: snapshot.recentlyClosedSessions.filter((session) => session.id !== id),
+      };
+
+      await this.saveSnapshot(nextSnapshot);
+    });
+  }
+
   public async upsertSession(session: PersistedTerminalSession): Promise<void> {
     await this.withWriteLock(async () => {
       const snapshot = await this.loadSnapshotForWrite();
       const nextSnapshot: PersistedTerminalSnapshot = {
         ...snapshot,
+        recentlyClosedSessions: snapshot.recentlyClosedSessions.filter((entry) => entry.id !== session.id),
         sessions: [...snapshot.sessions.filter((entry) => entry.id !== session.id), session],
       };
 
@@ -163,6 +207,7 @@ export class TerminalSessionPersistence {
 
 function createEmptyPersistedTerminalSnapshot(): PersistedTerminalSnapshot {
   return {
+    recentlyClosedSessions: [],
     sessions: [],
     version: SNAPSHOT_VERSION,
   };
@@ -174,6 +219,13 @@ function normalizePersistedTerminalSnapshot(input: unknown): PersistedTerminalSn
   }
 
   const version = input.version === SNAPSHOT_VERSION ? SNAPSHOT_VERSION : SNAPSHOT_VERSION;
+  const recentlyClosedSessions = Array.isArray(input.recentlyClosedSessions)
+    ? pruneRecentlyClosedSessions(
+        input.recentlyClosedSessions
+          .map((session) => normalizeRecentlyClosedTerminalSession(session))
+          .filter((session): session is RecentlyClosedTerminalSession => session !== null),
+      )
+    : [];
   const sessions = Array.isArray(input.sessions)
     ? input.sessions
         .map((session) => normalizePersistedTerminalSession(session))
@@ -181,6 +233,7 @@ function normalizePersistedTerminalSnapshot(input: unknown): PersistedTerminalSn
     : [];
 
   return {
+    recentlyClosedSessions,
     sessions,
     version,
   };
@@ -218,6 +271,23 @@ function normalizePersistedTerminalSession(input: unknown): PersistedTerminalSes
   };
 }
 
+function normalizeRecentlyClosedTerminalSession(input: unknown): RecentlyClosedTerminalSession | null {
+  const session = normalizePersistedTerminalSession(input);
+  if (!session || !isRecord(input)) {
+    return null;
+  }
+
+  const closedAt = asNonEmptyString(input.closedAt);
+  if (!closedAt) {
+    return null;
+  }
+
+  return {
+    ...session,
+    closedAt,
+  };
+}
+
 function asAgentProfileId(value: unknown): AgentProfileId | null {
   return value === "claude" ||
       value === "claude-context" ||
@@ -250,6 +320,20 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function pruneRecentlyClosedSessions(
+  sessions: readonly RecentlyClosedTerminalSession[],
+): readonly RecentlyClosedTerminalSession[] {
+  const cutoff = Date.now() - RECENTLY_CLOSED_MAX_AGE_MS;
+
+  return [...sessions]
+    .filter((session) => {
+      const timestamp = Date.parse(session.closedAt);
+      return Number.isFinite(timestamp) && timestamp >= cutoff;
+    })
+    .sort((left, right) => right.closedAt.localeCompare(left.closedAt))
+    .slice(0, MAX_RECENTLY_CLOSED_SESSIONS);
 }
 
 class CorruptSnapshotError extends Error {
