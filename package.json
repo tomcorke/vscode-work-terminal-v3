@@ -6,6 +6,7 @@
   "publisher": "tomcorke",
   "private": true,
   "license": "MIT",
+  "packageManager": "pnpm@10.32.1",
   "repository": {
     "type": "git",
     "url": "git@github.com:tomcorke/vscode-work-terminal-v3.git"
@@ -85,9 +86,9 @@
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "check": "npm run typecheck && npm run lint && npm run test",
-    "package": "npm run check && npm run build && npx @vscode/vsce package",
-    "vscode:prepublish": "npm run check && npm run build"
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "package": "pnpm run check && pnpm run build && pnpm exec vsce package",
+    "vscode:prepublish": "pnpm run check && pnpm run build"
   },
   "devDependencies": {
     "@types/node": "^22.13.14",
