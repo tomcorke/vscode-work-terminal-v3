@@ -293,6 +293,35 @@ describe("TerminalSessionPersistence", () => {
     expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
   });
 
+  it("trims persisted profile ids when reloading sessions", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, JSON.stringify({
+      recentlyClosedSessions: [],
+      sessions: [
+        createPersistedSession({
+          id: "session-1",
+          kind: "claude",
+          profileId: " claude-context ",
+          profileLabel: "Claude (ctx)",
+        }),
+      ],
+      version: 1,
+    }, null, 2), "utf8");
+
+    await expect(persistence.loadSessions()).resolves.toEqual([
+      expect.objectContaining({
+        id: "session-1",
+        profileId: "claude-context",
+      }),
+    ]);
+  });
+
   it("backs up snapshots with invalid recently closed timestamps before loading them", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
     tempDirectories.push(workspaceRoot);

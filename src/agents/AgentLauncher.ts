@@ -1,11 +1,7 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve, win32 } from "node:path";
 
-import {
-  getBuiltInAgentProfiles,
-  type AgentProfile,
-  type AgentProfileSummary,
-} from "./AgentProfile";
+import { getResumeBehaviorLabel, type AgentProfile, type AgentProfileSummary } from "./AgentProfile";
 
 const DEFAULT_WINDOWS_PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
 
@@ -17,13 +13,11 @@ export interface AgentLaunchPlan {
 }
 
 export function buildAgentLaunchPlan(options: {
-  readonly configuredCommand: string;
-  readonly configuredExtraArgs: string;
   readonly contextPrompt: string | null;
   readonly profile: AgentProfile;
   readonly resumeSessionId?: string | null;
 }): AgentLaunchPlan {
-  const commandTokens = splitConfiguredCommand(options.configuredCommand.trim());
+  const commandTokens = splitConfiguredCommand(options.profile.command.trim());
 
   if (commandTokens.length === 0) {
     throw new Error(`No command configured for ${options.profile.label}.`);
@@ -31,7 +25,7 @@ export function buildAgentLaunchPlan(options: {
 
   const executable = commandTokens[0];
   const baseArgs = commandTokens.slice(1);
-  const extraArgs = splitConfiguredCommand(options.configuredExtraArgs.trim());
+  const extraArgs = splitConfiguredCommand(options.profile.extraArgs.trim());
   const sessionId = options.profile.kind === "claude" ? options.resumeSessionId ?? crypto.randomUUID() : null;
   const agentArgs = options.profile.kind === "claude" && sessionId ? ["--session-id", sessionId] : [];
 
@@ -43,27 +37,23 @@ export function buildAgentLaunchPlan(options: {
   };
 }
 
-export function getAgentProfileSummaries(configuration: {
-  get<T>(section: string, defaultValue?: T): T;
-}): readonly AgentProfileSummary[] {
-  return getBuiltInAgentProfiles().map((profile) => {
-    const command = getNormalizedConfiguredCommand(
-      configuration.get<string>(profile.commandConfigurationKey, profile.defaultCommand),
-      profile.defaultCommand,
-    );
-    const resolvedCommand = resolveConfiguredCommand(command);
+export function getAgentProfileSummaries(profiles: readonly AgentProfile[]): readonly AgentProfileSummary[] {
+  return profiles.map((profile) => {
+    const normalizedCommand = profile.command.trim();
+    const resolvedCommand = resolveConfiguredCommand(normalizedCommand);
+    const status = normalizedCommand.length === 0
+      ? "invalid-configuration"
+      : (resolvedCommand.found ? "ready" : "missing-command");
 
     return {
-      command,
-      id: profile.id,
-      kind: profile.kind,
-      label: profile.label,
-      resumeBehaviorLabel: profile.resumeBehaviorLabel,
-      status: resolvedCommand.found ? "ready" : "missing-command",
-      statusLabel: resolvedCommand.found
-        ? `Ready - ${resolvedCommand.resolved}`
-        : `Missing from PATH - ${command || profile.defaultCommand}`,
-      usesContext: profile.usesContext,
+      ...profile,
+      resumeBehaviorLabel: getResumeBehaviorLabel(profile),
+      status,
+      statusLabel: normalizedCommand.length === 0
+        ? "Invalid configuration - add a launch command."
+        : (resolvedCommand.found
+          ? `Ready - ${resolvedCommand.resolved}`
+          : `Missing from PATH - ${normalizedCommand}`),
     };
   });
 }
@@ -130,14 +120,6 @@ export function splitConfiguredCommand(command: string): string[] {
   }
 
   return tokens;
-}
-
-export function getNormalizedConfiguredCommand(
-  configuredCommand: string | undefined,
-  defaultCommand: string,
-): string {
-  const trimmed = configuredCommand?.trim() ?? "";
-  return trimmed || defaultCommand;
 }
 
 function resolveConfiguredCommand(command: string): { readonly found: boolean; readonly resolved: string } {

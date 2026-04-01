@@ -1,77 +1,125 @@
-export type AgentKind = "claude" | "copilot";
-export type AgentProfileId = "claude" | "claude-context" | "copilot" | "copilot-context";
+export const AGENT_KINDS = ["claude", "copilot", "strands", "custom"] as const;
+export type AgentKind = (typeof AGENT_KINDS)[number];
+export type AgentProfileId = string;
 
 export interface AgentProfile {
-  readonly commandConfigurationKey: string;
-  readonly defaultCommand: string;
-  readonly extraArgsConfigurationKey: string;
+  readonly builtIn: boolean;
+  readonly command: string;
+  readonly extraArgs: string;
   readonly id: AgentProfileId;
   readonly kind: AgentKind;
   readonly label: string;
-  readonly resumeBehaviorLabel: string;
   readonly usesContext: boolean;
 }
 
-export interface AgentProfileSummary {
+export interface AgentProfileIssue {
+  readonly message: string;
+  readonly profileId: AgentProfileId | null;
+}
+
+export interface AgentProfileSummary extends AgentProfile {
+  readonly resumeBehaviorLabel: string;
+  readonly status: "invalid-configuration" | "missing-command" | "ready";
+  readonly statusLabel: string;
+}
+
+export interface SerializedAgentProfile {
   readonly command: string;
+  readonly extraArgs?: string;
   readonly id: AgentProfileId;
   readonly kind: AgentKind;
   readonly label: string;
-  readonly resumeBehaviorLabel: string;
-  readonly status: "missing-command" | "ready";
-  readonly statusLabel: string;
-  readonly usesContext: boolean;
+  readonly usesContext?: boolean;
 }
 
 const BUILT_IN_AGENT_PROFILES: readonly AgentProfile[] = [
   {
-    commandConfigurationKey: "claudeCommand",
-    defaultCommand: "claude",
-    extraArgsConfigurationKey: "claudeExtraArgs",
+    builtIn: true,
+    command: "claude",
+    extraArgs: "",
     id: "claude",
     kind: "claude",
     label: "Claude",
-    resumeBehaviorLabel: "Tracks a launch session id for resume-aware workflows.",
     usesContext: false,
   },
   {
-    commandConfigurationKey: "claudeCommand",
-    defaultCommand: "claude",
-    extraArgsConfigurationKey: "claudeExtraArgs",
+    builtIn: true,
+    command: "claude",
+    extraArgs: "",
     id: "claude-context",
     kind: "claude",
     label: "Claude (ctx)",
-    resumeBehaviorLabel: "Tracks a launch session id and sends work item context after launch.",
     usesContext: true,
   },
   {
-    commandConfigurationKey: "copilotCommand",
-    defaultCommand: "copilot",
-    extraArgsConfigurationKey: "copilotExtraArgs",
+    builtIn: true,
+    command: "copilot",
+    extraArgs: "",
     id: "copilot",
     kind: "copilot",
     label: "Copilot",
-    resumeBehaviorLabel: "Launches GitHub Copilot CLI with the configured command.",
     usesContext: false,
   },
   {
-    commandConfigurationKey: "copilotCommand",
-    defaultCommand: "copilot",
-    extraArgsConfigurationKey: "copilotExtraArgs",
+    builtIn: true,
+    command: "copilot",
+    extraArgs: "",
     id: "copilot-context",
     kind: "copilot",
     label: "Copilot (ctx)",
-    resumeBehaviorLabel: "Launches GitHub Copilot CLI and sends work item context after launch.",
+    usesContext: true,
+  },
+  {
+    builtIn: true,
+    command: "strands",
+    extraArgs: "",
+    id: "strands",
+    kind: "strands",
+    label: "Strands",
+    usesContext: false,
+  },
+  {
+    builtIn: true,
+    command: "strands",
+    extraArgs: "",
+    id: "strands-context",
+    kind: "strands",
+    label: "Strands (ctx)",
     usesContext: true,
   },
 ] as const;
 
 export function getBuiltInAgentProfiles(): readonly AgentProfile[] {
-  return BUILT_IN_AGENT_PROFILES;
+  return BUILT_IN_AGENT_PROFILES.map((profile) => ({ ...profile }));
 }
 
-export function getAgentProfileById(profileId: string): AgentProfile | null {
+export function getBuiltInAgentProfileById(profileId: string): AgentProfile | null {
   return BUILT_IN_AGENT_PROFILES.find((profile) => profile.id === profileId) ?? null;
+}
+
+export function isAgentKind(value: string): value is AgentKind {
+  return AGENT_KINDS.includes(value as AgentKind);
+}
+
+export function getResumeBehaviorLabel(profile: Pick<AgentProfile, "kind" | "usesContext">): string {
+  switch (profile.kind) {
+    case "claude":
+      return profile.usesContext
+        ? "Tracks a launch session id and sends work item context after launch."
+        : "Tracks a launch session id for resume-aware workflows.";
+    case "copilot":
+      return profile.usesContext
+        ? "Launches GitHub Copilot CLI and sends work item context after launch."
+        : "Launches GitHub Copilot CLI with the configured command.";
+    case "strands":
+      return profile.usesContext
+        ? "Launches Strands and sends work item context after launch."
+        : "Launches Strands with the configured command.";
+    case "custom":
+      return profile.usesContext
+        ? "Launches the configured agent command and sends work item context after launch."
+        : "Launches the configured agent command.";
+  }
 }
 
 export function buildWorkItemContextPrompt(itemTitle: string, itemDescription: string | null): string {

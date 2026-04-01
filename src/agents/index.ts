@@ -1,15 +1,26 @@
 export {
+  AGENT_KINDS,
   buildWorkItemContextPrompt,
-  getAgentProfileById,
+  getBuiltInAgentProfileById,
   getBuiltInAgentProfiles,
+  getResumeBehaviorLabel,
+  isAgentKind,
   type AgentKind,
   type AgentProfile,
   type AgentProfileId,
+  type AgentProfileIssue,
   type AgentProfileSummary,
+  type SerializedAgentProfile,
 } from "./AgentProfile";
 export {
+  AGENT_PROFILES_CONFIGURATION_KEY,
+  getAgentProfileById,
+  loadAgentProfileCatalog,
+  serializeAgentProfiles,
+  type AgentProfileCatalog,
+} from "./AgentProfileConfiguration";
+export {
   buildAgentLaunchPlan,
-  getNormalizedConfiguredCommand,
   getAgentProfileSummaries,
   splitConfiguredCommand,
   type AgentLaunchPlan,

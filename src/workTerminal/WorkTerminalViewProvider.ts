@@ -1,6 +1,14 @@
 import * as vscode from "vscode";
 
-import type { AgentProfileId } from "../agents";
+import {
+  AGENT_PROFILES_CONFIGURATION_KEY,
+  getBuiltInAgentProfileById,
+  loadAgentProfileCatalog,
+  serializeAgentProfiles,
+  type AgentKind,
+  type AgentProfile,
+  type AgentProfileId,
+} from "../agents";
 import type { TerminalSessionStore } from "../terminals";
 import type { WorkItemStore } from "../workItems";
 import { getNonce } from "./getNonce";
@@ -13,6 +21,7 @@ type WorkTerminalWebviewMessage =
   | { readonly type: "ready"; readonly selectedItemId: string | null }
   | { readonly type: "create-work-item-requested" }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
+  | { readonly type: "manage-profiles-requested" }
   | {
       readonly type: "reorder-item-requested";
       readonly fromColumn: "priority" | "todo" | "active" | "done";
@@ -93,6 +102,11 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
         if (message.type === "create-work-item-requested") {
           await this.createWorkItemFromPrompt();
+          return;
+        }
+
+        if (message.type === "manage-profiles-requested") {
+          await this.manageProfilesFromPrompt();
           return;
         }
 
@@ -196,6 +210,82 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     void vscode.window.showInformationMessage(`Created work item "${item.title}".`);
   }
 
+  public async manageProfilesFromPrompt(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration("workTerminal");
+    const catalog = loadAgentProfileCatalog(configuration);
+    const profiles = [...catalog.profiles];
+    const action = await promptForProfileAction();
+
+    if (!action) {
+      return;
+    }
+
+    if (action === "create") {
+      const created = await promptForProfile(undefined, profiles.map((profile) => profile.id));
+      if (!created) {
+        return;
+      }
+
+      profiles.push(created);
+      await this.saveProfiles(profiles, `Added profile "${created.label}"`);
+      return;
+    }
+
+    if (action === "reset") {
+      await configuration.update(AGENT_PROFILES_CONFIGURATION_KEY, undefined, getConfigurationTarget());
+      await this.refresh("Reset profile configuration to the built-in defaults");
+      void vscode.window.showInformationMessage("Reset Work Terminal profiles to the built-in defaults.");
+      return;
+    }
+
+    const selectedProfile = await promptForExistingProfile(profiles, action, catalog.issues.length);
+    if (!selectedProfile) {
+      return;
+    }
+
+    if (action === "edit") {
+      const updated = await promptForProfile(selectedProfile, profiles
+        .filter((profile) => profile.id !== selectedProfile.id)
+        .map((profile) => profile.id));
+      if (!updated) {
+        return;
+      }
+
+      const nextProfiles = profiles.map((profile) => profile.id === selectedProfile.id ? updated : profile);
+      await this.saveProfiles(nextProfiles, `Updated profile "${updated.label}"`);
+      return;
+    }
+
+    if (action === "delete") {
+      const confirmation = await vscode.window.showWarningMessage(
+        `Delete the profile "${selectedProfile.label}"?`,
+        { modal: true },
+        "Delete",
+      );
+      if (confirmation !== "Delete") {
+        return;
+      }
+
+      await this.saveProfiles(
+        profiles.filter((profile) => profile.id !== selectedProfile.id),
+        `Deleted profile "${selectedProfile.label}"`,
+      );
+      return;
+    }
+
+    const profileIndex = profiles.findIndex((profile) => profile.id === selectedProfile.id);
+    const direction = action === "move-up" ? -1 : 1;
+    const targetIndex = profileIndex + direction;
+    if (profileIndex < 0 || targetIndex < 0 || targetIndex >= profiles.length) {
+      void vscode.window.showWarningMessage(`"${selectedProfile.label}" cannot move any further.`);
+      return;
+    }
+
+    const nextProfiles = [...profiles];
+    [nextProfiles[profileIndex], nextProfiles[targetIndex]] = [nextProfiles[targetIndex], nextProfiles[profileIndex]];
+    await this.saveProfiles(nextProfiles, `Reordered profile "${selectedProfile.label}"`);
+  }
+
   public async launchShell(itemId: string, itemTitle: string, itemDescription: string | null): Promise<void> {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const session = await this.terminalStore.createShellSession(itemId, itemTitle, itemDescription, cwd);
@@ -269,6 +359,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       collapsedColumns: summary.collapsedColumns,
       columnSummaries: summary.columnSummaries,
       latestWorkItemTitle: summary.latestWorkItemTitle,
+      profileIssues: terminalSummary.profileIssues,
       recentlyClosedSessions: terminalSummary.recentlyClosedSessions,
       selectedItemId: resolvedSelectedItemId,
       status,
@@ -282,6 +373,17 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
         "No workspace",
       lastUpdatedLabel: new Date().toLocaleTimeString(),
     };
+  }
+
+  private async saveProfiles(profiles: readonly AgentProfile[], status: string): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration("workTerminal");
+    await configuration.update(
+      AGENT_PROFILES_CONFIGURATION_KEY,
+      serializeAgentProfiles(profiles),
+      getConfigurationTarget(),
+    );
+    await this.refresh(status);
+    void vscode.window.showInformationMessage(status);
   }
 }
 
@@ -299,4 +401,172 @@ async function promptForState(): Promise<"priority" | "todo" | "active" | "done"
   });
 
   return selection?.state;
+}
+
+async function promptForProfileAction(): Promise<"create" | "delete" | "edit" | "move-down" | "move-up" | "reset" | undefined> {
+  const selection = await vscode.window.showQuickPick([
+    { label: "Create profile", value: "create" },
+    { label: "Edit profile", value: "edit" },
+    { label: "Delete profile", value: "delete" },
+    { label: "Move profile up", value: "move-up" },
+    { label: "Move profile down", value: "move-down" },
+    { label: "Reset to built-in defaults", value: "reset" },
+  ] as const, {
+    ignoreFocusOut: true,
+    placeHolder: "Manage agent profiles",
+  });
+
+  return selection?.value;
+}
+
+async function promptForExistingProfile(
+  profiles: readonly AgentProfile[],
+  action: "delete" | "edit" | "move-down" | "move-up",
+  issueCount: number,
+): Promise<AgentProfile | undefined> {
+  if (profiles.length === 0) {
+    void vscode.window.showWarningMessage("No profiles are configured yet. Create one first.");
+    return undefined;
+  }
+
+  const selection = await vscode.window.showQuickPick(
+    profiles.map((profile, index) => ({
+      description: `${profile.kind}${profile.usesContext ? " · ctx" : ""}${profile.builtIn ? " · built-in" : ""}`,
+      detail: `${index + 1}. ${profile.command}${issueCount > 0 ? ` · ${issueCount} config issue${issueCount === 1 ? "" : "s"} currently shown in the board` : ""}`,
+      label: profile.label,
+      profile,
+    })),
+    {
+      ignoreFocusOut: true,
+      placeHolder: `Select a profile to ${action.replaceAll("-", " ")}`,
+    },
+  );
+
+  return selection?.profile;
+}
+
+async function promptForProfile(
+  existingProfile: AgentProfile | undefined,
+  otherProfileIds: readonly string[],
+): Promise<AgentProfile | undefined> {
+  const label = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: existingProfile ? `Edit profile label for ${existingProfile.label}` : "Create a profile label",
+    placeHolder: "Team agent",
+    value: existingProfile?.label ?? "",
+    validateInput: (value) => value.trim().length > 0 ? null : "A label is required.",
+  });
+  if (!label) {
+    return undefined;
+  }
+
+  const id = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: "Profile id",
+    placeHolder: "team-agent",
+    value: existingProfile?.id ?? slugifyProfileId(label),
+    validateInput: (value) => validateProfileId(value, otherProfileIds),
+  });
+  if (!id) {
+    return undefined;
+  }
+
+  const kind = await promptForProfileKind();
+  if (!kind) {
+    return undefined;
+  }
+
+  const command = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: `Command used to launch ${label}`,
+    placeHolder: kind === "custom" ? "my-agent --interactive" : kind,
+    value: existingProfile?.command ?? kind,
+    validateInput: (value) => value.trim().length > 0 ? null : "A launch command is required.",
+  });
+  if (!command) {
+    return undefined;
+  }
+
+  const extraArgs = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: `Extra arguments for ${label}`,
+    placeHolder: "--model fast",
+    value: existingProfile?.extraArgs ?? "",
+  });
+  if (extraArgs === undefined) {
+    return undefined;
+  }
+
+  const usesContext = await promptForContextBehavior();
+  if (usesContext === undefined) {
+    return undefined;
+  }
+
+  return {
+    builtIn: Boolean(getBuiltInAgentProfileById(id.trim())),
+    command: command.trim(),
+    extraArgs,
+    id: id.trim(),
+    kind,
+    label: label.trim(),
+    usesContext,
+  };
+}
+
+async function promptForProfileKind(): Promise<AgentKind | undefined> {
+  const selection = await vscode.window.showQuickPick([
+    { description: "Resume-aware Claude launcher", label: "Claude", value: "claude" },
+    { description: "GitHub Copilot CLI launcher", label: "Copilot", value: "copilot" },
+    { description: "Strands launcher", label: "Strands", value: "strands" },
+    { description: "Generic command without built-in session semantics", label: "Custom", value: "custom" },
+  ] as const, {
+    ignoreFocusOut: true,
+    placeHolder: "Choose the agent type",
+  });
+
+  return selection?.value;
+}
+
+async function promptForContextBehavior(): Promise<boolean | undefined> {
+  const selection = await vscode.window.showQuickPick([
+    { description: "Launch the command directly", label: "Do not send work item context", value: false },
+    { description: "Send the work item prompt after launch", label: "Send work item context after launch", value: true },
+  ] as const, {
+    ignoreFocusOut: true,
+    placeHolder: "Choose the context behavior",
+  });
+
+  return selection?.value;
+}
+
+function validateProfileId(value: string, existingIds: readonly string[]): string | null {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "A profile id is required.";
+  }
+
+  if (!/^[a-z0-9-]+$/u.test(normalized)) {
+    return "Use lowercase letters, numbers, and hyphens only.";
+  }
+
+  if (existingIds.includes(normalized)) {
+    return "That profile id already exists.";
+  }
+
+  return null;
+}
+
+function slugifyProfileId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    || "profile";
+}
+
+function getConfigurationTarget(): vscode.ConfigurationTarget {
+  return vscode.workspace.workspaceFolders?.length
+    ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
 }

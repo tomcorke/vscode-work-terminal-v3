@@ -43,6 +43,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("workTerminal.createWorkItem", async () => {
       await provider.createWorkItemFromPrompt();
     }),
+    vscode.commands.registerCommand("workTerminal.manageProfiles", async () => {
+      await vscode.commands.executeCommand("workbench.view.extension.workTerminal");
+      await provider.manageProfilesFromPrompt();
+    }),
   );
 }
 

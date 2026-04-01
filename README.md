@@ -135,7 +135,8 @@ The extension-host side owns VS Code API integration, persistence, terminal life
 - `src/terminals/TerminalSessionStore.ts` - creates shell and agent terminals, persists recoverable session metadata, restores saved sessions, and refocuses terminals
 - `src/terminals/TerminalSessionPersistence.ts` - loads and saves `.work-terminal/terminal-sessions.v1.json`, with atomic writes and corrupt snapshot recovery
 - `src/agents/AgentLauncher.ts` - resolves configured commands, splits quoted arguments, validates executables, and builds launch plans
-- `src/agents/AgentProfile.ts` - defines built-in Claude and Copilot profiles plus the work-item context prompt format
+- `src/agents/AgentProfile.ts` - defines the built-in Claude, Copilot, and Strands defaults plus the work-item context prompt format
+- `src/agents/AgentProfileConfiguration.ts` - loads profile settings, validates custom profiles, and serializes profile edits
 
 ### Webview
 
@@ -200,12 +201,15 @@ VS Code does not expose raw terminal output streams or a first-class terminal re
 
 Current launch-related settings contributed by the extension:
 
+- `workTerminal.agentProfiles` - optional full profile list for custom profiles, ordering, and built-in overrides
 - `workTerminal.claudeCommand`
 - `workTerminal.claudeExtraArgs`
 - `workTerminal.copilotCommand`
 - `workTerminal.copilotExtraArgs`
+- `workTerminal.strandsCommand`
+- `workTerminal.strandsExtraArgs`
 
-These settings are the supported way to point the extension at local Claude or Copilot CLI binaries.
+If `workTerminal.agentProfiles` is unset, Work Terminal derives the built-in Claude, Copilot, and Strands profiles from the legacy command settings above. Once a profile list is saved from `Work Terminal: Manage Profiles`, that ordered list becomes the source of truth.
 
 ## Tests and validation
 

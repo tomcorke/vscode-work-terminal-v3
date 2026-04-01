@@ -11,6 +11,7 @@ describe("renderWorkTerminalHtml", () => {
       state: {
         agentProfiles: [
           {
+            builtIn: true,
             command: "claude",
             id: "claude",
             kind: "claude",
@@ -49,6 +50,7 @@ describe("renderWorkTerminalHtml", () => {
           { count: 0, id: "todo", label: "To Do" },
         ],
         latestWorkItemTitle: "Demo task",
+        profileIssues: [],
         recentlyClosedSessions: [],
         selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
@@ -124,6 +126,7 @@ describe("renderWorkTerminalHtml", () => {
         },
         columnSummaries: [{ count: 1, id: "active", label: "Active" }],
         latestWorkItemTitle: "Demo\u2029task",
+        profileIssues: [],
         recentlyClosedSessions: [],
         selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
