@@ -104,12 +104,12 @@ describe("renderWorkTerminalHtml", () => {
             id: "active",
             items: [
               {
-                description: "Line separator and paragraph separator",
+                description: "Line\u2028separator and paragraph\u2029separator",
                 id: "123e4567-e89b-12d3-a456-426614174000",
                 isBlocked: false,
                 priorityLevel: "medium",
                 sourceKind: "manual",
-                title: "Demo task",
+                title: "Demo\u2028task",
                 updatedAt: "2026-04-01T10:00:00.000Z",
               },
             ],
@@ -123,7 +123,7 @@ describe("renderWorkTerminalHtml", () => {
           todo: false,
         },
         columnSummaries: [{ count: 1, id: "active", label: "Active" }],
-        latestWorkItemTitle: "Demo task",
+        latestWorkItemTitle: "Demo\u2029task",
         recentlyClosedSessions: [],
         selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
@@ -139,7 +139,7 @@ describe("renderWorkTerminalHtml", () => {
 
     expect(html).toContain("\\u2028");
     expect(html).toContain("\\u2029");
-    expect(html).not.toContain("Demo task");
-    expect(html).not.toContain("paragraph separator");
+    expect(html).not.toContain("Demo\u2028task");
+    expect(html).not.toContain("paragraph\u2029separator");
   });
 });

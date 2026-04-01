@@ -320,7 +320,7 @@ function render(nextState: WorkTerminalViewState): void {
   const filterInputSnapshot = captureFilterInputSnapshot();
   const visibleBoardColumns = getVisibleBoardColumns(nextState, filterQuery);
   const visibleItems = visibleBoardColumns.flatMap((column) => column.items);
-  const selectedItem = getActionableSelectedItem(nextState, filterQuery);
+  const selectedItem = getActionableSelectedItem(nextState, filterQuery, visibleItems);
   const selectionHiddenByFilter =
     filterQuery.trim().length > 0 &&
     nextState.selectedItemId !== null &&
@@ -345,6 +345,7 @@ function render(nextState: WorkTerminalViewState): void {
             type="search"
             value="${escapeHtml(filterQuery)}"
             placeholder="Filter work items"
+            aria-label="Filter work items"
             data-action="filter-items"
           />
           <button class="ghost-button" type="button" data-action="create">Create work item</button>
@@ -596,13 +597,14 @@ function getSelectedItem(nextState: WorkTerminalViewState): WorkTerminalViewStat
 function getActionableSelectedItem(
   nextState: WorkTerminalViewState,
   query: string,
+  visibleItems: WorkTerminalViewState["boardColumns"][number]["items"] | null = null,
 ): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
   if (query.trim().length === 0) {
     return getSelectedItem(nextState);
   }
 
-  const visibleItems = getVisibleBoardColumns(nextState, query).flatMap((column) => column.items);
-  return visibleItems.find((item) => item.id === nextState.selectedItemId) ?? null;
+  const actionableItems = visibleItems ?? getVisibleBoardColumns(nextState, query).flatMap((column) => column.items);
+  return actionableItems.find((item) => item.id === nextState.selectedItemId) ?? null;
 }
 
 function captureFilterInputSnapshot(): FilterInputSnapshot {
