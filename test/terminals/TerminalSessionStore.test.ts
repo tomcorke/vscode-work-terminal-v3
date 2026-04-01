@@ -141,6 +141,30 @@ describe("TerminalSessionStore", () => {
     store.dispose();
   });
 
+  it("does not send a delayed prompt after the terminal has already closed", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const store = new TerminalSessionStore();
+
+    const result = store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude-context",
+    });
+
+    expect(result.error).toBeNull();
+
+    closeListeners[0]?.(createdTerminals[0]);
+    vi.runAllTimers();
+
+    expect(createdTerminals[0].sendText).not.toHaveBeenCalled();
+
+    store.dispose();
+  });
+
   it("reports missing commands for unavailable profiles", async () => {
     configurationValues.claudeCommand = "definitely-missing-command-for-test";
 
