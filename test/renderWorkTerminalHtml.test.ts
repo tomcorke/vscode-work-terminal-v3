@@ -52,6 +52,8 @@ describe("renderWorkTerminalHtml", () => {
         },
         terminalSessions: [
           {
+            activityState: "active",
+            activityStateLabel: "Detected recent terminal activity",
             command: "claude",
             id: "223e4567-e89b-12d3-a456-426614174000",
             itemDescription: "Test selection details",

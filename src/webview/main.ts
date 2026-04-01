@@ -49,6 +49,8 @@ interface WorkTerminalViewState {
   readonly storagePath: string | null;
   readonly terminalSessionCountByItemId: Record<string, number>;
   readonly terminalSessions: ReadonlyArray<{
+    readonly activityState: "active" | "idle" | "waiting" | null;
+    readonly activityStateLabel: string | null;
     readonly command: string | null;
     readonly id: string;
     readonly itemDescription: string | null;
@@ -342,6 +344,11 @@ function render(nextState: WorkTerminalViewState): void {
                               <li class="session-list-item">
                                 <div>
                                   <strong>${escapeHtml(session.label)}</strong>
+                                  ${
+                                    session.activityState && session.activityStateLabel
+                                      ? `<p class="session-meta">${escapeHtml(`${formatActivityState(session.activityState)} · ${session.activityStateLabel}`)}</p>`
+                                      : ""
+                                  }
                                   <p>${escapeHtml(session.statusLabel)}</p>
                                   <p class="session-meta">${escapeHtml(describeSession(session))}</p>
                                 </div>
@@ -375,7 +382,7 @@ function render(nextState: WorkTerminalViewState): void {
                                 <div>
                                   <strong>${escapeHtml(session.label)}</strong>
                                   <p>${escapeHtml(session.statusLabel)}</p>
-                                  <p class="session-meta">${escapeHtml(`${describeSession(session)} · closed ${formatClosedAt(session.closedAt)}`)}</p>
+                                  <p class="session-meta">${escapeHtml(`${describeSessionDetails(session)} · closed ${formatClosedAt(session.closedAt)}`)}</p>
                                 </div>
                                 <button
                                   class="ghost-button"
@@ -445,6 +452,14 @@ function persistState(): void {
 }
 
 function describeSession(session: WorkTerminalViewState["terminalSessions"][number]): string {
+  return describeSessionDetails(session);
+}
+
+function describeSessionDetails(
+  session:
+    | WorkTerminalViewState["terminalSessions"][number]
+    | WorkTerminalViewState["recentlyClosedSessions"][number],
+): string {
   const details = [session.profileLabel ?? capitalize(session.kind)];
 
   if (session.resumeSessionId) {
@@ -465,6 +480,17 @@ function formatClosedAt(value: string): string {
   }
 
   return new Date(timestamp).toLocaleString();
+}
+
+function formatActivityState(value: "active" | "idle" | "waiting"): string {
+  switch (value) {
+    case "active":
+      return "Active";
+    case "idle":
+      return "Idle";
+    case "waiting":
+      return "Waiting";
+  }
 }
 
 function capitalize(value: string): string {

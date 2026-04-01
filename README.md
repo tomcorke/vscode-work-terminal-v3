@@ -38,6 +38,8 @@ It does not yet match the full Obsidian plugin feature set. The current implemen
   - `Copilot (ctx)`
 - Session tracking in the extension host, grouped back onto the originating work item
 - Workspace-local persistence, activation-time relaunch, and recently closed reopen flow for recoverable sessions
+- Best-effort agent activity badges (`Active`, `Waiting`, `Idle`) based on observable VS Code terminal signals
+- Best-effort agent rename tracking when VS Code updates the terminal title exposed to the extension host
 - Terminal refocus actions from the webview
 - Claude launches get a generated `--session-id` so resume-aware workflows can key off the initial launch
 
@@ -169,6 +171,10 @@ Configured agent commands are parsed by `src/agents/AgentLauncher.ts`.
 ### Context prompts
 
 For `Claude (ctx)` and `Copilot (ctx)`, the work item context is not baked into the process command line. Instead, the extension sends a prompt into the terminal shortly after launch. That keeps launch argument handling simple while still giving the agent useful context.
+
+### Agent state and rename tracking limits
+
+VS Code does not expose raw terminal output streams or a first-class terminal rename event to extensions. Because of that, the board only shows best-effort agent activity badges and rename updates when they can be inferred from host-visible terminal signals such as interaction state and the current terminal title.
 
 ### Webview safety
 

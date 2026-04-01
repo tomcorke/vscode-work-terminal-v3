@@ -47,6 +47,8 @@ export interface WorkTerminalViewState {
   readonly storagePath: string | null;
   readonly terminalSessionCountByItemId: Record<string, number>;
   readonly terminalSessions: ReadonlyArray<{
+    readonly activityState: "active" | "idle" | "waiting" | null;
+    readonly activityStateLabel: string | null;
     readonly command: string | null;
     readonly id: string;
     readonly itemDescription: string | null;

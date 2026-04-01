@@ -8,8 +8,12 @@ type ConfigurationValues = Record<string, string>;
 
 interface MockTerminal {
   dispose: ReturnType<typeof vi.fn>;
+  name: string;
   sendText: ReturnType<typeof vi.fn>;
   show: ReturnType<typeof vi.fn>;
+  state: {
+    isInteractedWith: boolean;
+  };
 }
 
 const configurationValues: ConfigurationValues = {
@@ -22,6 +26,7 @@ const configurationValues: ConfigurationValues = {
 const createdTerminals: MockTerminal[] = [];
 const createdTerminalOptions: unknown[] = [];
 const closeListeners: Array<(terminal: MockTerminal) => void> = [];
+const terminalStateListeners: Array<(terminal: MockTerminal) => void> = [];
 const tempDirectories: string[] = [];
 
 vi.mock("vscode", () => {
@@ -63,8 +68,12 @@ vi.mock("vscode", () => {
       createTerminal: vi.fn((options: unknown) => {
         const terminal: MockTerminal = {
           dispose: vi.fn(),
+          name: (options as { name?: string } | undefined)?.name ?? "Terminal",
           sendText: vi.fn(),
           show: vi.fn(),
+          state: {
+            isInteractedWith: false,
+          },
         };
         createdTerminals.push(terminal);
         createdTerminalOptions.push(options);
@@ -76,6 +85,15 @@ vi.mock("vscode", () => {
           const index = closeListeners.indexOf(listener);
           if (index >= 0) {
             closeListeners.splice(index, 1);
+          }
+        });
+      }),
+      onDidChangeTerminalState: vi.fn((listener: (terminal: MockTerminal) => void) => {
+        terminalStateListeners.push(listener);
+        return new Disposable(() => {
+          const index = terminalStateListeners.indexOf(listener);
+          if (index >= 0) {
+            terminalStateListeners.splice(index, 1);
           }
         });
       }),
@@ -94,6 +112,7 @@ describe("TerminalSessionStore", () => {
     createdTerminals.length = 0;
     createdTerminalOptions.length = 0;
     closeListeners.length = 0;
+    terminalStateListeners.length = 0;
     configurationValues.claudeCommand = "claude";
     configurationValues.claudeExtraArgs = "";
     configurationValues.copilotCommand = "copilot";
@@ -148,8 +167,9 @@ describe("TerminalSessionStore", () => {
     expect(result.error).toBeNull();
     expect(result.session?.profileId).toBe("claude-context");
     expect(result.session?.resumeSessionId).toMatch(/[0-9a-f-]{36}/);
+    expect(result.session?.activityState).toBe("active");
 
-    vi.runAllTimers();
+    await vi.advanceTimersByTimeAsync(250);
 
     expect(createdTerminals[0].sendText).toHaveBeenCalledWith(
       expect.stringContaining("Work item context:"),
@@ -178,7 +198,7 @@ describe("TerminalSessionStore", () => {
     expect(result.error).toBeNull();
 
     closeListeners[0]?.(createdTerminals[0]);
-    vi.runAllTimers();
+    await vi.advanceTimersByTimeAsync(250);
     await waitForPersistedSessionCount(store, 0);
 
     expect(createdTerminals[0].sendText).not.toHaveBeenCalled();
@@ -335,6 +355,62 @@ describe("TerminalSessionStore", () => {
     expect(createdTerminalOptions[1]).toMatchObject({
       shellArgs: expect.arrayContaining(["--session-id", originalResumeSessionId]),
       shellPath: process.execPath,
+    });
+
+    store.dispose();
+  });
+
+  it("transitions agent sessions from active to waiting to idle based on observable terminal activity", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude",
+    });
+
+    expect(store.getSummary().sessions[0]?.activityState).toBe("active");
+
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(store.getSummary().sessions[0]?.activityState).toBe("waiting");
+
+    createdTerminals[0].state.isInteractedWith = true;
+    terminalStateListeners[0]?.(createdTerminals[0]);
+    expect(store.getSummary().sessions[0]?.activityState).toBe("active");
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1_000);
+    expect(store.getSummary().sessions[0]?.activityState).toBe("idle");
+
+    store.dispose();
+  });
+
+  it("tracks agent session renames when VS Code updates the terminal title", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude",
+    });
+
+    createdTerminals[0].name = "Investigate regression - Claude renamed";
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.waitFor(() => {
+      expect(store.getSummary().sessions[0]?.label).toBe("Investigate regression - Claude renamed");
     });
 
     store.dispose();
