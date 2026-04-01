@@ -46,9 +46,11 @@ export function getAgentProfileSummaries(configuration: {
   get<T>(section: string, defaultValue?: T): T;
 }): readonly AgentProfileSummary[] {
   return getBuiltInAgentProfiles().map((profile) => {
-    const configuredCommand = (configuration.get<string>(profile.commandConfigurationKey, profile.defaultCommand) ?? "").trim();
-    const resolvedCommand = resolveCommandInfo(configuredCommand || profile.defaultCommand);
-    const command = configuredCommand || profile.defaultCommand;
+    const command = getNormalizedConfiguredCommand(
+      configuration.get<string>(profile.commandConfigurationKey, profile.defaultCommand),
+      profile.defaultCommand,
+    );
+    const resolvedCommand = resolveConfiguredCommand(command);
 
     return {
       command,
@@ -127,6 +129,23 @@ export function splitConfiguredCommand(command: string): string[] {
   }
 
   return tokens;
+}
+
+export function getNormalizedConfiguredCommand(
+  configuredCommand: string | undefined,
+  defaultCommand: string,
+): string {
+  const trimmed = configuredCommand?.trim() ?? "";
+  return trimmed || defaultCommand;
+}
+
+function resolveConfiguredCommand(command: string): { readonly found: boolean; readonly resolved: string } {
+  const requested = splitConfiguredCommand(command.trim())[0]?.trim() ?? "";
+  if (!requested) {
+    return { found: false, resolved: requested };
+  }
+
+  return resolveCommandInfo(requested);
 }
 
 function resolveCommandInfo(command: string): { readonly found: boolean; readonly resolved: string } {
