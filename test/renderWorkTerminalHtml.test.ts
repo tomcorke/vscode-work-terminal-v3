@@ -81,4 +81,48 @@ describe("renderWorkTerminalHtml", () => {
     expect(html).toContain("https://example.invalid/dist/webview/main.css");
     expect(html).toContain("https://example.invalid/dist/webview/main.js");
   });
+
+  it("escapes line separator characters in the bootstrapped state", () => {
+    const html = renderWorkTerminalHtml({
+      cspSource: "https://example.invalid",
+      nonce: "test-nonce",
+      scriptUri: "https://example.invalid/dist/webview/main.js",
+      state: {
+        agentProfiles: [],
+        boardColumns: [
+          {
+            id: "active",
+            items: [
+              {
+                description: "Line\u2028separator and paragraph\u2029separator",
+                id: "123e4567-e89b-12d3-a456-426614174000",
+                isBlocked: false,
+                priorityLevel: "medium",
+                sourceKind: "manual",
+                title: "Demo\u2028task",
+                updatedAt: "2026-04-01T10:00:00.000Z",
+              },
+            ],
+            label: "Active",
+          },
+        ],
+        columnSummaries: [{ count: 1, id: "active", label: "Active" }],
+        latestWorkItemTitle: "Demo\u2029task",
+        selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
+        status: "Ready",
+        storagePath: null,
+        terminalSessionCountByItemId: {},
+        terminalSessions: [],
+        totalWorkItems: 1,
+        workspaceName: "Demo Workspace",
+        lastUpdatedLabel: "10:00:00",
+      },
+      styleUri: "https://example.invalid/dist/webview/main.css",
+    });
+
+    expect(html).toContain("\\u2028");
+    expect(html).toContain("\\u2029");
+    expect(html).not.toContain("Demo\u2028task");
+    expect(html).not.toContain("paragraph\u2029separator");
+  });
 });

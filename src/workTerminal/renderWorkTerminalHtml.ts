@@ -65,7 +65,10 @@ export function renderWorkTerminalHtml({
   state,
   styleUri,
 }: RenderWorkTerminalHtmlOptions): string {
-  const bootstrapState = JSON.stringify(state).replaceAll("<", "\\u003c");
+  const bootstrapState = JSON.stringify(state)
+    .replaceAll("<", "\\u003c")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
 
   return `<!DOCTYPE html>
 <html lang="en">
