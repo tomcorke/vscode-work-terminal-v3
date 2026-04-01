@@ -78,6 +78,26 @@ select {
   gap: 12px;
 }
 
+.summary-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.summary-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .card {
   border: 1px solid var(--vscode-panel-border);
   border-radius: 10px;
@@ -96,6 +116,10 @@ select {
   margin: 6px 0 0;
   color: var(--vscode-descriptionForeground);
   line-height: 1.5;
+}
+
+.summary-list strong {
+  font-size: 13px;
 }
 
 .eyebrow {
@@ -127,4 +151,3 @@ select {
     grid-template-columns: 1fr;
   }
 }
-

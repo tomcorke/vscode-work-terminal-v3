@@ -5,6 +5,7 @@ import {
   renderWorkTerminalHtml,
   type WorkTerminalViewState,
 } from "./renderWorkTerminalHtml";
+import type { WorkItemStore } from "../workItems";
 
 type WorkTerminalWebviewMessage =
   | { readonly type: "ready" }
@@ -18,9 +19,10 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly disposables: vscode.Disposable[],
+    private readonly store: WorkItemStore,
   ) {}
 
-  public resolveWebviewView(webviewView: vscode.WebviewView): void {
+  public async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this.view = webviewView;
     const scriptUri = webviewView.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "main.js"),
@@ -36,7 +38,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       cspSource: webviewView.webview.cspSource,
       nonce: getNonce(),
       scriptUri: scriptUri.toString(),
-      state: this.createViewState("Scaffold ready"),
+      state: await this.createViewState("Scaffold ready"),
       styleUri: styleUri.toString(),
     });
 
@@ -60,12 +62,12 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     this.view?.show?.(true);
   }
 
-  public async refresh(): Promise<void> {
-    await this.postState("Refreshed placeholder state from extension host");
+  public async refresh(status = "Refreshed work item state from extension host"): Promise<void> {
+    await this.postState(status);
   }
 
   private async postState(status: string): Promise<void> {
-    const state = this.createViewState(status);
+    const state = await this.createViewState(status);
 
     await this.view?.webview.postMessage({
       type: "state-updated",
@@ -73,9 +75,15 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private createViewState(status: string): WorkTerminalViewState {
+  private async createViewState(status: string): Promise<WorkTerminalViewState> {
+    const summary = await this.store.getSummary();
+
     return {
+      columnSummaries: summary.columnSummaries,
+      latestWorkItemTitle: summary.latestWorkItemTitle,
       status,
+      storagePath: summary.storagePath,
+      totalWorkItems: summary.totalCount,
       workspaceName:
         vscode.workspace.name ??
         vscode.workspace.workspaceFolders?.[0]?.name ??

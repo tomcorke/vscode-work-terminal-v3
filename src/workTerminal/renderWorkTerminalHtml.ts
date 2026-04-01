@@ -1,5 +1,13 @@
 export interface WorkTerminalViewState {
+  readonly columnSummaries: ReadonlyArray<{
+    readonly count: number;
+    readonly id: string;
+    readonly label: string;
+  }>;
+  readonly latestWorkItemTitle: string | null;
   readonly status: string;
+  readonly storagePath: string | null;
+  readonly totalWorkItems: number;
   readonly workspaceName: string;
   readonly lastUpdatedLabel: string;
 }

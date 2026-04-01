@@ -30,6 +30,10 @@
       {
         "command": "workTerminal.refreshView",
         "title": "Work Terminal: Refresh View"
+      },
+      {
+        "command": "workTerminal.createWorkItem",
+        "title": "Work Terminal: Create Work Item"
       }
     ],
     "viewsContainers": {
@@ -71,4 +75,3 @@
     "vitest": "^3.0.9"
   }
 }
-

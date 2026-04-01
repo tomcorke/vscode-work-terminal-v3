@@ -1,7 +1,15 @@
 import "./styles.css";
 
 interface WorkTerminalViewState {
+  readonly columnSummaries: ReadonlyArray<{
+    readonly count: number;
+    readonly id: string;
+    readonly label: string;
+  }>;
+  readonly latestWorkItemTitle: string | null;
   readonly status: string;
+  readonly storagePath: string | null;
+  readonly totalWorkItems: number;
   readonly workspaceName: string;
   readonly lastUpdatedLabel: string;
 }
@@ -86,12 +94,24 @@ function render(nextState: WorkTerminalViewState): void {
           </div>
           <div class="placeholder-stack">
             <article class="card">
-              <h3>Backlog lanes</h3>
-              <p>Task columns and focus context will be rendered here.</p>
+              <h3>Persisted work items</h3>
+              <p>${escapeHtml(
+                nextState.storagePath
+                  ? `${nextState.totalWorkItems} items stored in ${nextState.storagePath}`
+                  : "Open a workspace to start persisting work items.",
+              )}</p>
+              <ul class="summary-list">
+                ${nextState.columnSummaries
+                  .map(
+                    (summary) =>
+                      `<li><span>${escapeHtml(summary.label)}</span><strong>${summary.count}</strong></li>`,
+                  )
+                  .join("")}
+              </ul>
             </article>
             <article class="card">
-              <h3>Selected item</h3>
-              <p>Future work will attach actions, metadata, and selection state.</p>
+              <h3>Latest work item</h3>
+              <p>${escapeHtml(nextState.latestWorkItemTitle ?? "No work items created yet.")}</p>
             </article>
           </div>
         </section>
@@ -124,7 +144,11 @@ function render(nextState: WorkTerminalViewState): void {
 
 function createFallbackState(): WorkTerminalViewState {
   return {
+    columnSummaries: [],
+    latestWorkItemTitle: null,
     status: "Scaffold ready",
+    storagePath: null,
+    totalWorkItems: 0,
     workspaceName: "No workspace",
     lastUpdatedLabel: "Not yet updated",
   };
