@@ -56,8 +56,8 @@
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "package": "npm run build && npx @vscode/vsce package",
-    "vscode:prepublish": "npm run build"
+    "package": "npm run check && npm run build && npx @vscode/vsce package",
+    "vscode:prepublish": "npm run check && npm run build"
   },
   "devDependencies": {
     "@types/node": "^22.13.14",
@@ -71,4 +71,3 @@
     "vitest": "^3.0.9"
   }
 }
-
