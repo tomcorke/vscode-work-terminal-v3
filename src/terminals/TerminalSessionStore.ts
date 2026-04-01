@@ -15,7 +15,15 @@ import {
   type PersistedTerminalSession,
 } from "./TerminalSessionPersistence";
 
+const AGENT_ACTIVE_WINDOW_MS = 15_000;
+const AGENT_IDLE_AFTER_MS = 5 * 60 * 1000;
+const TERMINAL_MONITOR_INTERVAL_MS = 2_000;
+
+export type AgentActivityState = "active" | "idle" | "waiting";
+
 export interface TerminalSessionSummary {
+  readonly activityState: AgentActivityState | null;
+  readonly activityStateLabel: string | null;
   readonly command: string | null;
   readonly id: string;
   readonly itemDescription: string | null;
@@ -37,6 +45,10 @@ export interface TerminalStoreSummary {
 }
 
 interface StoredTerminalSession {
+  readonly createdAt: number;
+  readonly hasObservedSignal: boolean;
+  readonly lastActivityAt: number;
+  readonly lastObservedTerminalName: string;
   readonly persisted: PersistedTerminalSession;
   readonly summary: TerminalSessionSummary;
   readonly terminal: vscode.Terminal;
@@ -44,17 +56,26 @@ interface StoredTerminalSession {
 
 export class TerminalSessionStore implements vscode.Disposable {
   private readonly closeDisposable: vscode.Disposable;
+  private readonly monitorInterval: ReturnType<typeof setInterval>;
   private readonly pendingInitialPromptTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly persistence: TerminalSessionPersistence;
+  private refreshSessionTrackingPromise: Promise<void> | null = null;
   private recentlyClosedSessions: readonly RecentlyClosedTerminalSession[] = [];
   private readonly sessionsChangedEmitter = new vscode.EventEmitter<void>();
   private readonly sessionsById = new Map<string, StoredTerminalSession>();
+  private readonly terminalStateDisposable: vscode.Disposable;
 
   public constructor(workspaceRootPath: string | null) {
     this.persistence = new TerminalSessionPersistence(workspaceRootPath);
     this.closeDisposable = vscode.window.onDidCloseTerminal((terminal) => {
       void this.handleClosedTerminal(terminal);
     });
+    this.terminalStateDisposable = vscode.window.onDidChangeTerminalState((terminal) => {
+      this.handleTerminalStateChange(terminal);
+    });
+    this.monitorInterval = setInterval(() => {
+      this.queueRefreshSessionTracking();
+    }, TERMINAL_MONITOR_INTERVAL_MS);
   }
 
   public get onDidChangeSessions(): vscode.Event<void> {
@@ -84,6 +105,8 @@ export class TerminalSessionStore implements vscode.Disposable {
       name: label,
     });
     const summary: TerminalSessionSummary = {
+      activityState: null,
+      activityStateLabel: null,
       command: null,
       id,
       itemDescription,
@@ -112,7 +135,15 @@ export class TerminalSessionStore implements vscode.Disposable {
       statusLabel: summary.statusLabel,
     };
 
-    this.sessionsById.set(id, { persisted, summary, terminal });
+    this.sessionsById.set(id, {
+      createdAt: Date.now(),
+      hasObservedSignal: false,
+      lastActivityAt: Date.now(),
+      lastObservedTerminalName: label.trim(),
+      persisted,
+      summary,
+      terminal,
+    });
     if (options.persist !== false) {
       await this.persistSession(persisted);
     }
@@ -138,6 +169,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     createOptions: {
       readonly emitChange?: boolean;
       readonly existingId?: string;
+      readonly existingLabel?: string;
       readonly persist?: boolean;
       readonly reveal?: boolean;
       readonly resumeSessionId?: string | null;
@@ -183,7 +215,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       };
     }
     const id = createOptions.existingId ?? crypto.randomUUID();
-    const label = `${options.itemTitle} - ${profile.label}`;
+    const label = createOptions.existingLabel?.trim() || `${options.itemTitle} - ${profile.label}`;
     const terminal = vscode.window.createTerminal({
       cwd: options.cwd,
       name: label,
@@ -191,6 +223,8 @@ export class TerminalSessionStore implements vscode.Disposable {
       shellPath: launchPlan.executable,
     });
     const summary: TerminalSessionSummary = {
+      activityState: "active",
+      activityStateLabel: "Launching agent session",
       command: configuredCommand.trim(),
       id,
       itemDescription: options.itemDescription,
@@ -221,7 +255,15 @@ export class TerminalSessionStore implements vscode.Disposable {
       statusLabel: summary.statusLabel,
     };
 
-    this.sessionsById.set(id, { persisted, summary, terminal });
+    this.sessionsById.set(id, {
+      createdAt: Date.now(),
+      hasObservedSignal: false,
+      lastActivityAt: Date.now(),
+      lastObservedTerminalName: label.trim(),
+      persisted,
+      summary,
+      terminal,
+    });
     if (createOptions.persist !== false) {
       await this.persistSession(persisted);
     }
@@ -244,6 +286,7 @@ export class TerminalSessionStore implements vscode.Disposable {
         }
 
         terminal.sendText(initialPrompt, true);
+        this.markSessionActivity(id, { emitChange: true });
       }, 200);
       this.pendingInitialPromptTimers.set(id, timer);
     }
@@ -294,6 +337,7 @@ export class TerminalSessionStore implements vscode.Disposable {
         },
         {
           existingId: session.id,
+          existingLabel: session.label,
           resumeSessionId: session.resumeSessionId,
           reveal: false,
         },
@@ -384,6 +428,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       {
         emitChange: false,
         existingId: recentlyClosed.id,
+        existingLabel: recentlyClosed.label,
         resumeSessionId: recentlyClosed.resumeSessionId,
       },
     );
@@ -399,6 +444,8 @@ export class TerminalSessionStore implements vscode.Disposable {
 
   public dispose(): void {
     this.closeDisposable.dispose();
+    this.terminalStateDisposable.dispose();
+    clearInterval(this.monitorInterval);
     for (const timer of this.pendingInitialPromptTimers.values()) {
       clearTimeout(timer);
     }
@@ -429,6 +476,19 @@ export class TerminalSessionStore implements vscode.Disposable {
 
     clearTimeout(timer);
     this.pendingInitialPromptTimers.delete(id);
+  }
+
+  private handleTerminalStateChange(terminal: vscode.Terminal): void {
+    if (!terminal.state.isInteractedWith) {
+      return;
+    }
+
+    for (const [id, session] of this.sessionsById) {
+      if (session.terminal === terminal) {
+        this.markSessionActivity(id, { emitChange: true });
+        return;
+      }
+    }
   }
 
   private async recordClosedSession(session: PersistedTerminalSession): Promise<void> {
@@ -463,6 +523,26 @@ export class TerminalSessionStore implements vscode.Disposable {
     }
   }
 
+  private markSessionActivity(id: string, options: { readonly emitChange: boolean }): void {
+    const session = this.sessionsById.get(id);
+    if (!session || session.summary.kind === "shell") {
+      return;
+    }
+
+    const nextSummary = this.withDerivedAgentState(
+      {
+        ...session,
+        hasObservedSignal: true,
+        lastActivityAt: Date.now(),
+      },
+      Date.now(),
+    );
+    this.sessionsById.set(id, nextSummary);
+    if (options.emitChange) {
+      this.sessionsChangedEmitter.fire();
+    }
+  }
+
   private async refreshRecentlyClosedSessions(): Promise<void> {
     this.recentlyClosedSessions = await this.persistence.loadRecentlyClosedSessions();
   }
@@ -482,6 +562,102 @@ export class TerminalSessionStore implements vscode.Disposable {
       );
     }
   }
+
+  private async refreshSessionTracking(): Promise<void> {
+    const now = Date.now();
+    let didChange = false;
+
+    for (const [id, session] of this.sessionsById) {
+      const renamedSession = await this.maybeApplyTerminalRename(id, session, now);
+      const trackedSession = this.withDerivedAgentState(renamedSession, now);
+
+      if (trackedSession !== renamedSession) {
+        this.sessionsById.set(id, trackedSession);
+        didChange = true;
+        continue;
+      }
+
+      if (renamedSession !== session) {
+        this.sessionsById.set(id, renamedSession);
+        didChange = true;
+      }
+    }
+
+    if (didChange) {
+      this.sessionsChangedEmitter.fire();
+    }
+  }
+
+  private queueRefreshSessionTracking(): void {
+    if (this.refreshSessionTrackingPromise) {
+      return;
+    }
+
+    this.refreshSessionTrackingPromise = this.refreshSessionTracking().finally(() => {
+      this.refreshSessionTrackingPromise = null;
+    });
+  }
+
+  private async maybeApplyTerminalRename(
+    id: string,
+    session: StoredTerminalSession,
+    now: number,
+  ): Promise<StoredTerminalSession> {
+    if (session.summary.kind === "shell") {
+      return session;
+    }
+
+    const observedName = session.terminal.name.trim();
+    if (!observedName || observedName === session.lastObservedTerminalName) {
+      return session;
+    }
+
+    const renamedSession = this.withDerivedAgentState(
+      {
+        ...session,
+        hasObservedSignal: true,
+        lastActivityAt: now,
+        lastObservedTerminalName: observedName,
+        persisted: {
+          ...session.persisted,
+          label: observedName,
+        },
+        summary: {
+          ...session.summary,
+          label: observedName,
+        },
+      },
+      now,
+    );
+
+    await this.persistSession(renamedSession.persisted);
+    return renamedSession;
+  }
+
+  private withDerivedAgentState(session: StoredTerminalSession, now: number): StoredTerminalSession {
+    if (session.summary.kind === "shell") {
+      return session;
+    }
+
+    const nextActivityState = deriveAgentActivityState(session, now);
+    const nextActivityStateLabel = getAgentActivityStateLabel(nextActivityState, session.hasObservedSignal);
+
+    if (
+      session.summary.activityState === nextActivityState &&
+      session.summary.activityStateLabel === nextActivityStateLabel
+    ) {
+      return session;
+    }
+
+    return {
+      ...session,
+      summary: {
+        ...session.summary,
+        activityState: nextActivityState,
+        activityStateLabel: nextActivityStateLabel,
+      },
+    };
+  }
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
@@ -491,4 +667,27 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
       "code" in error &&
       (error as NodeJS.ErrnoException).code === "ENOENT",
   );
+}
+
+function deriveAgentActivityState(session: StoredTerminalSession, now: number): AgentActivityState {
+  if (now - session.createdAt < AGENT_ACTIVE_WINDOW_MS) {
+    return "active";
+  }
+
+  if (now - session.lastActivityAt >= AGENT_IDLE_AFTER_MS) {
+    return "idle";
+  }
+
+  return session.hasObservedSignal ? "active" : "waiting";
+}
+
+function getAgentActivityStateLabel(state: AgentActivityState, hasObservedSignal: boolean): string {
+  switch (state) {
+    case "active":
+      return hasObservedSignal ? "Recent terminal signal observed" : "Starting agent session";
+    case "idle":
+      return "No recent terminal signals observed";
+    case "waiting":
+      return "Waiting for detectable terminal signals";
+  }
 }
