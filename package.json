@@ -1,0 +1,74 @@
+{
+  "name": "vscode-work-terminal-v3",
+  "displayName": "Work Terminal",
+  "description": "A VS Code port of work-terminal with a board-first workflow and per-item terminal sessions.",
+  "version": "0.1.0",
+  "publisher": "tomcorke",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:tomcorke/vscode-work-terminal-v3.git"
+  },
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:workTerminal.focus",
+    "onView:workTerminal.view"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "workTerminal.focus",
+        "title": "Work Terminal: Focus View"
+      },
+      {
+        "command": "workTerminal.refreshView",
+        "title": "Work Terminal: Refresh View"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "workTerminal",
+          "title": "Work Terminal"
+        }
+      ]
+    },
+    "views": {
+      "workTerminal": [
+        {
+          "id": "workTerminal.view",
+          "name": "Board"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "watch": "node ./scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "package": "npm run build && npx @vscode/vsce package",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "@types/vscode": "^1.99.0",
+    "@typescript-eslint/eslint-plugin": "^8.29.0",
+    "@typescript-eslint/parser": "^8.29.0",
+    "@vscode/vsce": "^3.3.2",
+    "esbuild": "^0.25.2",
+    "eslint": "^8.57.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.9"
+  }
+}
+

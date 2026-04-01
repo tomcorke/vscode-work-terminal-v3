@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.topbar,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.footer {
+  border-top: 1px solid var(--vscode-panel-border);
+  border-bottom: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.layout {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(280px, 1.1fr) minmax(320px, 1fr);
+  gap: 16px;
+  padding: 16px 20px 20px;
+}
+
+.panel {
+  display: flex;
+  min-height: 280px;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    var(--vscode-editor-background) 92%,
+    var(--vscode-sideBar-background)
+  );
+  padding: 16px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.placeholder-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 10px;
+  background: var(--vscode-editor-background);
+  padding: 14px;
+}
+
+.card h3,
+.panel h2,
+.topbar h1 {
+  margin: 0;
+}
+
+.card p,
+.topbar p {
+  margin: 6px 0 0;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+}
+
+.pill,
+.ghost-button {
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.ghost-button {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  cursor: pointer;
+}
+
+.ghost-button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
