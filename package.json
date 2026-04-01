@@ -41,7 +41,8 @@
       "activitybar": [
         {
           "id": "workTerminal",
-          "title": "Work Terminal"
+          "title": "Work Terminal",
+          "icon": "media/work-terminal-activity-bar.svg"
         }
       ]
     },
