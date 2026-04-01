@@ -21,6 +21,13 @@ function readManifest(): PackageManifest {
   return JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as PackageManifest;
 }
 
+function readVsCodeIgnoreLines(): string[] {
+  return readFileSync(path.join(repoRoot, ".vscodeignore"), "utf8")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+}
+
 describe("extension manifest", () => {
   it("declares an activity bar icon asset for the work terminal container", () => {
     const manifest = readManifest();
@@ -28,7 +35,22 @@ describe("extension manifest", () => {
       (container) => container.id === "workTerminal",
     );
 
-    expect(activityBarContainer?.icon).toBe("media/work-terminal-activity-bar.svg");
-    expect(existsSync(path.join(repoRoot, activityBarContainer?.icon ?? ""))).toBe(true);
+    expect(activityBarContainer).toBeDefined();
+
+    const iconPath = activityBarContainer?.icon;
+    expect(iconPath).toBe("media/work-terminal-activity-bar.svg");
+    expect(iconPath).toBeTruthy();
+    expect(existsSync(path.join(repoRoot, iconPath!))).toBe(true);
+  });
+
+  it("does not exclude the media directory from VSIX packaging", () => {
+    const ignoreLines = readVsCodeIgnoreLines();
+    const excludesMedia = ignoreLines.some((line) =>
+      /^!/.test(line)
+        ? false
+        : /^(?:\*\*\/)?media(?:\/?$|\/\*\*$)/u.test(line),
+    );
+
+    expect(excludesMedia).toBe(false);
   });
 });
