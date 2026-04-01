@@ -11,3 +11,5 @@ tsconfig.json
 vitest.config.ts
 .vscode/**
 coverage/**
+package-lock.json
+pnpm-lock.yaml
