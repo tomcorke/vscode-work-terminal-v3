@@ -360,7 +360,7 @@ describe("TerminalSessionStore", () => {
     store.dispose();
   });
 
-  it("transitions agent sessions from active to waiting to idle based on observable terminal activity", async () => {
+  it("transitions agent sessions from active to waiting to idle based on observable terminal signals", async () => {
     configurationValues.claudeCommand = process.execPath;
 
     const { TerminalSessionStore } = await import("../../src/terminals");
@@ -411,6 +411,74 @@ describe("TerminalSessionStore", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     await vi.waitFor(() => {
       expect(store.getSummary().sessions[0]?.label).toBe("Investigate regression - Claude renamed");
+    });
+
+    store.dispose();
+  });
+
+  it("preserves renamed agent labels when restoring persisted sessions", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude",
+    });
+
+    createdTerminals[0].name = "Investigate regression - Claude renamed";
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.waitFor(() => {
+      expect(store.getSummary().sessions[0]?.label).toBe("Investigate regression - Claude renamed");
+    });
+    store.dispose();
+
+    const restoredStore = new TerminalSessionStore(workspaceRoot);
+    await restoredStore.restorePersistedSessions();
+
+    expect(restoredStore.getSummary().sessions[0]?.label).toBe("Investigate regression - Claude renamed");
+    expect(createdTerminalOptions[1]).toMatchObject({
+      name: "Investigate regression - Claude renamed",
+    });
+
+    restoredStore.dispose();
+  });
+
+  it("preserves renamed agent labels when reopening recently closed sessions", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude",
+    });
+
+    createdTerminals[0].name = "Investigate regression - Claude renamed";
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.waitFor(() => {
+      expect(store.getSummary().sessions[0]?.label).toBe("Investigate regression - Claude renamed");
+    });
+    closeListeners[0]?.(createdTerminals[0]);
+    await waitForPersistedSessionCount(store, 0);
+
+    const reopened = await store.reopenRecentlyClosedSession(result.session!.id);
+
+    expect(reopened.session?.label).toBe("Investigate regression - Claude renamed");
+    expect(createdTerminalOptions[1]).toMatchObject({
+      name: "Investigate regression - Claude renamed",
     });
 
     store.dispose();
