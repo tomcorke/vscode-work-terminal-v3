@@ -29,6 +29,20 @@ export interface WorkTerminalViewState {
   }>;
   readonly latestWorkItemTitle: string | null;
   readonly selectedItemId: string | null;
+  readonly recentlyClosedSessions: ReadonlyArray<{
+    readonly closedAt: string;
+    readonly command: string | null;
+    readonly id: string;
+    readonly itemDescription: string | null;
+    readonly itemId: string;
+    readonly itemTitle: string;
+    readonly kind: "claude" | "copilot" | "shell";
+    readonly label: string;
+    readonly profileId: string | null;
+    readonly profileLabel: string | null;
+    readonly resumeSessionId: string | null;
+    readonly statusLabel: string;
+  }>;
   readonly status: string;
   readonly storagePath: string | null;
   readonly terminalSessionCountByItemId: Record<string, number>;

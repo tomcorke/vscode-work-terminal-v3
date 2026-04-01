@@ -13,6 +13,7 @@ type WorkTerminalWebviewMessage =
   | { readonly type: "ready"; readonly selectedItemId: string | null }
   | { readonly type: "create-work-item-requested" }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
+  | { readonly type: "reopen-recent-session-requested"; readonly sessionId: string }
   | {
       readonly type: "launch-agent-requested";
       readonly itemDescription: string | null;
@@ -110,6 +111,11 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
         if (message.type === "focus-terminal-requested") {
           this.focusTerminal(message.terminalId);
+          return;
+        }
+
+        if (message.type === "reopen-recent-session-requested") {
+          await this.reopenRecentlyClosedSession(message.sessionId);
         }
       },
       undefined,
@@ -192,6 +198,17 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  public async reopenRecentlyClosedSession(sessionId: string): Promise<void> {
+    const result = await this.terminalStore.reopenRecentlyClosedSession(sessionId);
+
+    if (!result.session) {
+      void vscode.window.showWarningMessage(result.error ?? "Unable to reopen that recently closed session.");
+      return;
+    }
+
+    await this.refresh(`Reopened ${result.session.profileLabel ?? result.session.kind} session "${result.session.label}"`);
+  }
+
   private async postState(status: string): Promise<void> {
     const state = await this.createViewState(status);
 
@@ -215,6 +232,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       boardColumns: summary.boardColumns,
       columnSummaries: summary.columnSummaries,
       latestWorkItemTitle: summary.latestWorkItemTitle,
+      recentlyClosedSessions: terminalSummary.recentlyClosedSessions,
       selectedItemId: resolvedSelectedItemId,
       status,
       storagePath: summary.storagePath,

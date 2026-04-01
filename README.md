@@ -37,7 +37,7 @@ It does not yet match the full Obsidian plugin feature set. The current implemen
   - `Copilot`
   - `Copilot (ctx)`
 - Session tracking in the extension host, grouped back onto the originating work item
-- Workspace-local persistence and activation-time relaunch for recoverable sessions
+- Workspace-local persistence, activation-time relaunch, and recently closed reopen flow for recoverable sessions
 - Terminal refocus actions from the webview
 - Claude launches get a generated `--session-id` so resume-aware workflows can key off the initial launch
 
@@ -112,6 +112,8 @@ Recommended iteration loop:
 - Use `Developer: Reload Window` in the Extension Development Host after rebuilds when you need the extension and webview to pick up fresh output.
 
 Saved sessions are re-launched when the extension activates again in the same workspace. This restores session metadata and relaunches the terminal command, but it does not restore prior terminal buffer contents or shell history.
+
+Recently closed sessions remain available from the selected item's terminal panel until they are reopened or pruned by retention rules.
 
 ## Architecture summary
 
