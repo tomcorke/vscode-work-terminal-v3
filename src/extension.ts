@@ -4,15 +4,27 @@ import * as vscode from "vscode";
 import { WorkTerminalViewProvider } from "./workTerminal/WorkTerminalViewProvider";
 import { WorkItemStore } from "./workItems";
 
-export function activate(context: vscode.ExtensionContext): void {
-  const store = new WorkItemStore(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null);
-  const terminalStore = new TerminalSessionStore();
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+  const store = new WorkItemStore(workspaceRootPath);
+  const terminalStore = new TerminalSessionStore(workspaceRootPath);
+  const recovery = await terminalStore.restorePersistedSessions();
   const provider = new WorkTerminalViewProvider(
     context.extensionUri,
     context.subscriptions,
     store,
     terminalStore,
   );
+
+  if (recovery.restoredCount > 0 || recovery.skippedCount > 0) {
+    const restoredLabel = recovery.restoredCount > 0
+      ? `Recovered ${recovery.restoredCount} terminal session${recovery.restoredCount === 1 ? "" : "s"}`
+      : null;
+    const skippedLabel = recovery.skippedCount > 0
+      ? `skipped ${recovery.skippedCount} saved session${recovery.skippedCount === 1 ? "" : "s"}`
+      : null;
+    await provider.refresh([restoredLabel, skippedLabel].filter(Boolean).join("; "));
+  }
 
   context.subscriptions.push(
     terminalStore,

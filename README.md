@@ -11,6 +11,8 @@ This repository is past the empty scaffold stage and already ships a usable vert
 - create-work-item flow from the extension host
 - per-item shell terminals
 - Claude and GitHub Copilot CLI launch profiles, with optional work-item context prompts
+- workspace-local terminal session persistence in `.work-terminal/terminal-sessions.v1.json`
+- activation-time relaunch of saved sessions, including reuse of Claude `--session-id` values for resume-aware recovery
 - command readiness checks for configured agent binaries
 - unit tests, coverage, linting, type checking, and VSIX packaging
 
@@ -35,6 +37,7 @@ It does not yet match the full Obsidian plugin feature set. The current implemen
   - `Copilot`
   - `Copilot (ctx)`
 - Session tracking in the extension host, grouped back onto the originating work item
+- Workspace-local persistence and activation-time relaunch for recoverable sessions
 - Terminal refocus actions from the webview
 - Claude launches get a generated `--session-id` so resume-aware workflows can key off the initial launch
 
@@ -108,6 +111,8 @@ Recommended iteration loop:
 - Use `Developer: Open Webview Developer Tools` when debugging the board UI.
 - Use `Developer: Reload Window` in the Extension Development Host after rebuilds when you need the extension and webview to pick up fresh output.
 
+Saved sessions are re-launched when the extension activates again in the same workspace. This restores session metadata and relaunches the terminal command, but it does not restore prior terminal buffer contents or shell history.
+
 ## Architecture summary
 
 The repo follows the VS Code split between extension-host code and a sandboxed webview bundle.
@@ -119,7 +124,8 @@ The extension-host side owns VS Code API integration, persistence, terminal life
 - `src/extension.ts` - activates the extension, wires commands, stores, and the webview provider
 - `src/workTerminal/WorkTerminalViewProvider.ts` - owns the webview bridge and user action handling
 - `src/workItems/WorkItemStore.ts` - loads and saves `.work-terminal/work-items.v1.json`, with a write queue and corrupt snapshot recovery
-- `src/terminals/TerminalSessionStore.ts` - creates shell and agent terminals, tracks session summaries, and refocuses terminals
+- `src/terminals/TerminalSessionStore.ts` - creates shell and agent terminals, persists recoverable session metadata, restores saved sessions, and refocuses terminals
+- `src/terminals/TerminalSessionPersistence.ts` - loads and saves `.work-terminal/terminal-sessions.v1.json`, with atomic writes and corrupt snapshot recovery
 - `src/agents/AgentLauncher.ts` - resolves configured commands, splits quoted arguments, validates executables, and builds launch plans
 - `src/agents/AgentProfile.ts` - defines built-in Claude and Copilot profiles plus the work-item context prompt format
 
@@ -173,8 +179,10 @@ For `Claude (ctx)` and `Copilot (ctx)`, the work item context is not baked into 
 ### Filesystem behavior
 
 - Work items are persisted inside the current workspace, not global extension storage
+- Terminal session metadata is also persisted inside the current workspace for recovery-oriented relaunches
 - Snapshot writes are atomic: write a temporary file, then rename into place
 - Corrupt snapshots are renamed to `work-items.v1.json.corrupt-<timestamp>` before the store resets itself
+- Corrupt terminal session snapshots are renamed to `terminal-sessions.v1.json.corrupt-<timestamp>` before the session store resets itself
 
 ## Settings
 
@@ -192,7 +200,8 @@ These settings are the supported way to point the extension at local Claude or C
 The current test suite covers the main documentation-sensitive behavior:
 
 - `test/agents/AgentLauncher.test.ts` - command parsing and launch plan behavior
-- `test/terminals/TerminalSessionStore.test.ts` - shell and agent session tracking
+- `test/terminals/TerminalSessionStore.test.ts` - shell and agent session tracking plus recovery flows
+- `test/terminals/TerminalSessionPersistence.test.ts` - terminal session persistence, deletion, and corrupt snapshot recovery
 - `test/workItems/WorkItemStore.test.ts` - persistence, write serialization, and corrupt snapshot recovery
 - `test/renderWorkTerminalHtml.test.ts` - HTML bootstrap and escaping
 - `test/extensionManifest.test.ts` - activity bar icon and VSIX packaging guardrails
