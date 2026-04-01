@@ -15,7 +15,10 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
   private view: vscode.WebviewView | undefined;
 
-  public constructor(private readonly extensionUri: vscode.Uri) {}
+  public constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly disposables: vscode.Disposable[],
+  ) {}
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
@@ -49,7 +52,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
         }
       },
       undefined,
-      [],
+      this.disposables,
     );
   }
 
