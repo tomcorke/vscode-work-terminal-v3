@@ -136,7 +136,11 @@ export class TerminalSessionPersistence {
     try {
       return await this.loadSnapshot();
     } catch (error) {
-      if (isMissingFileError(error) || error instanceof CorruptSnapshotError) {
+      if (error instanceof CorruptSnapshotError) {
+        return this.recoverFromCorruptSnapshot(error);
+      }
+
+      if (isMissingFileError(error)) {
         return createEmptyPersistedTerminalSnapshot();
       }
 
@@ -155,11 +159,7 @@ export class TerminalSessionPersistence {
       return await this.loadSnapshot();
     } catch (error) {
       if (error instanceof CorruptSnapshotError) {
-        console.warn(
-          `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the terminal session store.`,
-        );
-        await this.backupCorruptSnapshot(error.storagePath);
-        return createEmptyPersistedTerminalSnapshot();
+        return this.recoverFromCorruptSnapshot(error);
       }
 
       if (!isMissingFileError(error)) {
@@ -186,6 +186,32 @@ export class TerminalSessionPersistence {
   private async backupCorruptSnapshot(storagePath: string): Promise<void> {
     const backupPath = `${storagePath}.corrupt-${Date.now()}`;
     await rename(storagePath, backupPath);
+  }
+
+  private async recoverFromCorruptSnapshot(error: CorruptSnapshotError): Promise<PersistedTerminalSnapshot> {
+    console.warn(
+      `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the terminal session store.`,
+      error.cause,
+    );
+
+    try {
+      await this.backupCorruptSnapshot(error.storagePath);
+    } catch (backupError) {
+      if (isNonFatalSnapshotBackupError(backupError)) {
+        console.warn(
+          `[work-terminal] Unable to back up corrupt snapshot at ${error.storagePath} before reset because it was already moved or removed. Continuing with an empty terminal session store.`,
+          backupError,
+        );
+      } else {
+        console.error(
+          `[work-terminal] Failed to back up corrupt snapshot at ${error.storagePath}. Unable to reset the terminal session store safely.`,
+          backupError,
+        );
+        throw backupError;
+      }
+    }
+
+    return createEmptyPersistedTerminalSnapshot();
   }
 
   private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -215,27 +241,42 @@ function createEmptyPersistedTerminalSnapshot(): PersistedTerminalSnapshot {
 
 function normalizePersistedTerminalSnapshot(input: unknown): PersistedTerminalSnapshot {
   if (!isRecord(input)) {
-    return createEmptyPersistedTerminalSnapshot();
+    throw new TypeError("Terminal session snapshot must be an object.");
   }
 
-  const version = input.version === SNAPSHOT_VERSION ? SNAPSHOT_VERSION : SNAPSHOT_VERSION;
-  const recentlyClosedSessions = Array.isArray(input.recentlyClosedSessions)
-    ? pruneRecentlyClosedSessions(
-        input.recentlyClosedSessions
-          .map((session) => normalizeRecentlyClosedTerminalSession(session))
-          .filter((session): session is RecentlyClosedTerminalSession => session !== null),
-      )
-    : [];
-  const sessions = Array.isArray(input.sessions)
-    ? input.sessions
-        .map((session) => normalizePersistedTerminalSession(session))
-        .filter((session): session is PersistedTerminalSession => session !== null)
-    : [];
+  if (input.version !== SNAPSHOT_VERSION) {
+    throw new TypeError(`Unsupported terminal session snapshot version: ${String(input.version)}`);
+  }
+
+  if (!Array.isArray(input.recentlyClosedSessions)) {
+    throw new TypeError("Terminal session snapshot recently closed sessions must be an array.");
+  }
+
+  if (!Array.isArray(input.sessions)) {
+    throw new TypeError("Terminal session snapshot sessions must be an array.");
+  }
+
+  const recentlyClosedSessions = pruneRecentlyClosedSessions(
+    input.recentlyClosedSessions.map((session, index) => {
+      const normalized = normalizeRecentlyClosedTerminalSession(session);
+      if (!normalized) {
+        throw new TypeError(`Invalid recently closed terminal session at index ${index}.`);
+      }
+      return normalized;
+    }),
+  );
+  const sessions = input.sessions.map((session, index) => {
+    const normalized = normalizePersistedTerminalSession(session);
+    if (!normalized) {
+      throw new TypeError(`Invalid terminal session at index ${index}.`);
+    }
+    return normalized;
+  });
 
   return {
     recentlyClosedSessions,
     sessions,
-    version,
+    version: SNAPSHOT_VERSION,
   };
 }
 
@@ -278,7 +319,7 @@ function normalizeRecentlyClosedTerminalSession(input: unknown): RecentlyClosedT
   }
 
   const closedAt = asNonEmptyString(input.closedAt);
-  if (!closedAt) {
+  if (!closedAt || !Number.isFinite(Date.parse(closedAt))) {
     return null;
   }
 
@@ -310,12 +351,17 @@ function asSessionKind(value: unknown): PersistedTerminalSessionKind | null {
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT",
-  );
+  return getErrorCode(error) === "ENOENT";
+}
+
+function isNonFatalSnapshotBackupError(error: unknown): error is NodeJS.ErrnoException {
+  return getErrorCode(error) === "ENOENT";
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error
+    ? (error as NodeJS.ErrnoException).code
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -328,10 +374,7 @@ function pruneRecentlyClosedSessions(
   const cutoff = Date.now() - RECENTLY_CLOSED_MAX_AGE_MS;
 
   return [...sessions]
-    .filter((session) => {
-      const timestamp = Date.parse(session.closedAt);
-      return Number.isFinite(timestamp) && timestamp >= cutoff;
-    })
+    .filter((session) => Date.parse(session.closedAt) >= cutoff)
     .sort((left, right) => right.closedAt.localeCompare(left.closedAt))
     .slice(0, MAX_RECENTLY_CLOSED_SESSIONS);
 }
