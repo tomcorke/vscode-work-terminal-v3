@@ -35,6 +35,10 @@
       {
         "command": "workTerminal.createWorkItem",
         "title": "Work Terminal: Create Work Item"
+      },
+      {
+        "command": "workTerminal.manageProfiles",
+        "title": "Work Terminal: Manage Profiles"
       }
     ],
     "viewsContainers": {
@@ -76,6 +80,63 @@
           "type": "string",
           "default": "",
           "description": "Extra arguments appended when launching Copilot sessions."
+        },
+        "workTerminal.strandsCommand": {
+          "type": "string",
+          "default": "strands",
+          "description": "Command used to launch Strands sessions."
+        },
+        "workTerminal.strandsExtraArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments appended when launching Strands sessions."
+        },
+        "workTerminal.agentProfiles": {
+          "type": "array",
+          "markdownDescription": "Optional full profile configuration. When unset, Work Terminal derives the built-in Claude, Copilot, and Strands profiles from the legacy command settings. Use the `Work Terminal: Manage Profiles` command or edit this setting directly for custom profiles and ordering.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "kind",
+              "command"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable profile id used for launches and restored sessions."
+              },
+              "label": {
+                "type": "string",
+                "description": "User-facing profile label."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "claude",
+                  "copilot",
+                  "strands",
+                  "custom"
+                ],
+                "description": "Profile behavior. Claude adds resume session ids. The other kinds launch the configured command directly."
+              },
+              "command": {
+                "type": "string",
+                "description": "Command used to launch the profile. Multi-token commands are supported."
+              },
+              "extraArgs": {
+                "type": "string",
+                "default": "",
+                "description": "Extra arguments appended after the command tokens."
+              },
+              "usesContext": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, Work Terminal sends the work item context prompt after launch."
+              }
+            }
+          }
         }
       }
     }

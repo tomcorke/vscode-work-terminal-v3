@@ -3,10 +3,10 @@ import * as vscode from "vscode";
 import {
   buildAgentLaunchPlan,
   buildWorkItemContextPrompt,
-  getAgentProfileById,
-  getNormalizedConfiguredCommand,
   getAgentProfileSummaries,
+  loadAgentProfileCatalog,
   type AgentProfileId,
+  type AgentProfileIssue,
   type AgentProfileSummary,
 } from "../agents";
 import {
@@ -29,7 +29,7 @@ export interface TerminalSessionSummary {
   readonly itemDescription: string | null;
   readonly itemId: string;
   readonly itemTitle: string;
-  readonly kind: "claude" | "copilot" | "shell";
+  readonly kind: "claude" | "copilot" | "custom" | "shell" | "strands";
   readonly label: string;
   readonly profileId: AgentProfileId | null;
   readonly profileLabel: string | null;
@@ -39,6 +39,7 @@ export interface TerminalSessionSummary {
 
 export interface TerminalStoreSummary {
   readonly agentProfiles: readonly AgentProfileSummary[];
+  readonly profileIssues: readonly AgentProfileIssue[];
   readonly recentlyClosedSessions: readonly RecentlyClosedTerminalSession[];
   readonly sessionCountByItemId: Record<string, number>;
   readonly sessions: readonly TerminalSessionSummary[];
@@ -176,37 +177,29 @@ export class TerminalSessionStore implements vscode.Disposable {
       readonly skipInitialPrompt?: boolean;
     } = {},
   ): Promise<{ readonly error: string | null; readonly session: TerminalSessionSummary | null }> {
-    const configuration = vscode.workspace.getConfiguration("workTerminal");
-    const profile = getAgentProfileById(options.profileId);
+    const catalog = loadAgentProfileCatalog(vscode.workspace.getConfiguration("workTerminal"));
+    const profile = catalog.profiles.find((candidate) => candidate.id === options.profileId);
 
     if (!profile) {
       return {
-        error: `Unknown agent profile "${options.profileId}".`,
+        error: `Unknown agent profile "${options.profileId}". Use Manage Profiles to add it back or choose a different profile.`,
         session: null,
       };
     }
 
-    const profileSummary = getAgentProfileSummaries(configuration).find((summary) => summary.id === options.profileId);
+    const profileSummary = getAgentProfileSummaries(catalog.profiles).find((summary) => summary.id === options.profileId);
     if (!profileSummary || profileSummary.status !== "ready") {
       return {
-        error: `${profile.label} is not available. ${profileSummary?.statusLabel ?? "Check the configured command in settings."}`,
+        error: `${profile.label} is not available. ${profileSummary?.statusLabel ?? "Check the profile configuration in Manage Profiles or settings."}`,
         session: null,
       };
     }
-
-    const configuredCommand = getNormalizedConfiguredCommand(
-      configuration.get<string>(profile.commandConfigurationKey, profile.defaultCommand),
-      profile.defaultCommand,
-    );
-    const configuredExtraArgs = configuration.get<string>(profile.extraArgsConfigurationKey, "") ?? "";
     const contextPrompt = createOptions.skipInitialPrompt
       ? null
       : buildWorkItemContextPrompt(options.itemTitle, options.itemDescription);
     let launchPlan;
     try {
       launchPlan = buildAgentLaunchPlan({
-        configuredCommand,
-        configuredExtraArgs,
         contextPrompt,
         profile,
         resumeSessionId: createOptions.resumeSessionId,
@@ -233,7 +226,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     const summary: TerminalSessionSummary = {
       activityState: "active",
       activityStateLabel: "Launching agent session",
-      command: configuredCommand.trim(),
+      command: profile.command.trim(),
       id,
       itemDescription: options.itemDescription,
       itemId: options.itemId,
@@ -401,8 +394,11 @@ export class TerminalSessionStore implements vscode.Disposable {
       sessionCountByItemId[session.itemId] = (sessionCountByItemId[session.itemId] ?? 0) + 1;
     }
 
+    const catalog = loadAgentProfileCatalog(vscode.workspace.getConfiguration("workTerminal"));
+
     return {
-      agentProfiles: getAgentProfileSummaries(vscode.workspace.getConfiguration("workTerminal")),
+      agentProfiles: getAgentProfileSummaries(catalog.profiles),
+      profileIssues: catalog.issues,
       recentlyClosedSessions: this.recentlyClosedSessions,
       sessionCountByItemId,
       sessions,
@@ -764,7 +760,8 @@ function shouldSkipInitialPromptOnRestore(
     return false;
   }
 
-  const profile = getAgentProfileById(profileId);
+  const profile = loadAgentProfileCatalog(vscode.workspace.getConfiguration("workTerminal")).profiles
+    .find((candidate) => candidate.id === profileId);
   return Boolean(profile && profile.kind === "claude" && profile.usesContext);
 }
 

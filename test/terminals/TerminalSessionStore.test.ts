@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type ConfigurationValues = Record<string, string>;
+type ConfigurationValues = Record<string, unknown>;
 
 interface MockTerminal {
   dispose: ReturnType<typeof vi.fn>;
@@ -17,10 +17,13 @@ interface MockTerminal {
 }
 
 const configurationValues: ConfigurationValues = {
+  agentProfiles: undefined,
   claudeCommand: "claude",
   claudeExtraArgs: "",
   copilotCommand: "copilot",
   copilotExtraArgs: "",
+  strandsCommand: "strands",
+  strandsExtraArgs: "",
 };
 
 const createdTerminals: MockTerminal[] = [];
@@ -119,10 +122,13 @@ describe("TerminalSessionStore", () => {
     createdTerminalOptions.length = 0;
     closeListeners.length = 0;
     terminalStateListeners.length = 0;
+    configurationValues.agentProfiles = undefined;
     configurationValues.claudeCommand = "claude";
     configurationValues.claudeExtraArgs = "";
     configurationValues.copilotCommand = "copilot";
     configurationValues.copilotExtraArgs = "";
+    configurationValues.strandsCommand = "strands";
+    configurationValues.strandsExtraArgs = "";
     vi.useFakeTimers();
   });
 
@@ -230,6 +236,62 @@ describe("TerminalSessionStore", () => {
 
     expect(result.session).toBeNull();
     expect(result.error).toContain("Claude is not available");
+
+    store.dispose();
+  });
+
+  it("launches a custom agent profile from settings", async () => {
+    configurationValues.agentProfiles = [
+      {
+        command: process.execPath,
+        extraArgs: "--version",
+        id: "team-agent",
+        kind: "custom",
+        label: "Team agent",
+        usesContext: true,
+      },
+    ];
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Use the shared context",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "team-agent",
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.session).toEqual(expect.objectContaining({
+      kind: "custom",
+      profileId: "team-agent",
+      profileLabel: "Team agent",
+      resumeSessionId: null,
+    }));
+    expect(createdTerminalOptions[0]).toEqual(expect.objectContaining({
+      shellArgs: ["--version"],
+      shellPath: process.execPath,
+    }));
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(createdTerminals[0].sendText).toHaveBeenCalledWith(expect.stringContaining("Work item context:"), true);
+
+    store.dispose();
+  });
+
+  it("includes Strands in the available profile summaries", async () => {
+    configurationValues.strandsCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    expect(store.getSummary().agentProfiles.some((profile) => profile.id === "strands" && profile.status === "ready")).toBe(true);
 
     store.dispose();
   });

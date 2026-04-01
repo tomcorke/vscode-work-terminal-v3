@@ -1,15 +1,13 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { AgentProfileId } from "../agents";
-
 const STORAGE_DIRECTORY_NAME = ".work-terminal";
 const STORAGE_FILE_NAME = "terminal-sessions.v1.json";
 const SNAPSHOT_VERSION = 1;
 const MAX_RECENTLY_CLOSED_SESSIONS = 12;
 const RECENTLY_CLOSED_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-type PersistedTerminalSessionKind = "claude" | "copilot" | "shell";
+type PersistedTerminalSessionKind = "claude" | "copilot" | "custom" | "shell" | "strands";
 
 export interface PersistedTerminalSession {
   readonly command: string | null;
@@ -20,7 +18,7 @@ export interface PersistedTerminalSession {
   readonly itemTitle: string;
   readonly kind: PersistedTerminalSessionKind;
   readonly label: string;
-  readonly profileId: AgentProfileId | null;
+  readonly profileId: string | null;
   readonly profileLabel: string | null;
   readonly resumeSessionId: string | null;
   readonly statusLabel: string;
@@ -329,13 +327,8 @@ function normalizeRecentlyClosedTerminalSession(input: unknown): RecentlyClosedT
   };
 }
 
-function asAgentProfileId(value: unknown): AgentProfileId | null {
-  return value === "claude" ||
-      value === "claude-context" ||
-      value === "copilot" ||
-      value === "copilot-context"
-    ? value
-    : null;
+function asAgentProfileId(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function asNullableString(value: unknown): string | null {
@@ -347,7 +340,9 @@ function asNonEmptyString(value: unknown): string | null {
 }
 
 function asSessionKind(value: unknown): PersistedTerminalSessionKind | null {
-  return value === "claude" || value === "copilot" || value === "shell" ? value : null;
+  return value === "claude" || value === "copilot" || value === "custom" || value === "shell" || value === "strands"
+    ? value
+    : null;
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

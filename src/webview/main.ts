@@ -2,12 +2,13 @@ import "./styles.css";
 
 interface WorkTerminalViewState {
   readonly agentProfiles: ReadonlyArray<{
+    readonly builtIn: boolean;
     readonly command: string;
     readonly id: string;
-    readonly kind: "claude" | "copilot";
+    readonly kind: "claude" | "copilot" | "custom" | "strands";
     readonly label: string;
     readonly resumeBehaviorLabel: string;
-    readonly status: "missing-command" | "ready";
+    readonly status: "invalid-configuration" | "missing-command" | "ready";
     readonly statusLabel: string;
     readonly usesContext: boolean;
   }>;
@@ -31,6 +32,10 @@ interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
+  readonly profileIssues: ReadonlyArray<{
+    readonly message: string;
+    readonly profileId: string | null;
+  }>;
   readonly selectedItemId: string | null;
   readonly recentlyClosedSessions: ReadonlyArray<{
     readonly closedAt: string;
@@ -39,7 +44,7 @@ interface WorkTerminalViewState {
     readonly itemDescription: string | null;
     readonly itemId: string;
     readonly itemTitle: string;
-    readonly kind: "claude" | "copilot" | "shell";
+    readonly kind: "claude" | "copilot" | "custom" | "shell" | "strands";
     readonly label: string;
     readonly profileId: string | null;
     readonly profileLabel: string | null;
@@ -57,7 +62,7 @@ interface WorkTerminalViewState {
     readonly itemDescription: string | null;
     readonly itemId: string;
     readonly itemTitle: string;
-    readonly kind: "claude" | "copilot" | "shell";
+    readonly kind: "claude" | "copilot" | "custom" | "shell" | "strands";
     readonly label: string;
     readonly profileId: string | null;
     readonly profileLabel: string | null;
@@ -145,6 +150,11 @@ root.addEventListener("click", (event: MouseEvent) => {
 
   if (target.dataset.action === "create") {
     vscode.postMessage({ type: "create-work-item-requested" });
+    return;
+  }
+
+  if (target.dataset.action === "manage-profiles") {
+    vscode.postMessage({ type: "manage-profiles-requested" });
     return;
   }
 
@@ -349,6 +359,7 @@ function render(nextState: WorkTerminalViewState): void {
             data-action="filter-items"
           />
           <button class="ghost-button" type="button" data-action="create">Create work item</button>
+          <button class="ghost-button" type="button" data-action="manage-profiles">Manage profiles</button>
           <button class="ghost-button" type="button" data-action="refresh">Refresh view</button>
         </div>
       </header>
@@ -482,7 +493,10 @@ function render(nextState: WorkTerminalViewState): void {
           </div>
           <div class="placeholder-stack">
             <article class="card">
-              <h3>Agent launchers</h3>
+              <div class="card-title-row">
+                <h3>Agent launchers</h3>
+                <button class="ghost-button" type="button" data-action="manage-profiles">Manage profiles</button>
+              </div>
               <ul class="profile-list">
                 ${nextState.agentProfiles
                   .map(
@@ -490,6 +504,7 @@ function render(nextState: WorkTerminalViewState): void {
                       <li class="profile-list-item">
                         <div>
                           <strong>${escapeHtml(profile.label)}</strong>
+                          <p>${escapeHtml(`${capitalize(profile.kind)}${profile.usesContext ? " · ctx" : ""}${profile.builtIn ? " · built-in" : ""}`)}</p>
                           <p>${escapeHtml(profile.resumeBehaviorLabel)}</p>
                         </div>
                         <div class="profile-status ${profile.status === "ready" ? "is-ready" : "is-missing"}">${escapeHtml(profile.statusLabel)}</div>
@@ -569,9 +584,18 @@ function render(nextState: WorkTerminalViewState): void {
               }
             </article>
             <article class="card">
+              <h3>Profile diagnostics</h3>
+              ${nextState.profileIssues.length > 0
+                ? `<ul class="profile-issue-list">${nextState.profileIssues
+                  .map((issue) => `<li>${escapeHtml(issue.profileId ? `${issue.profileId}: ${issue.message}` : issue.message)}</li>`)
+                  .join("")}</ul>`
+                : "<p>No profile configuration issues detected.</p>"}
+              <p class="session-meta">Fix issues in Manage Profiles or directly in the workTerminal.agentProfiles setting.</p>
+            </article>
+            <article class="card">
               <h3>Host-managed sessions</h3>
               <p>${escapeHtml(nextState.status)}</p>
-              <p>Shell, Claude, and Copilot sessions opened from the board are tracked here by work item.</p>
+              <p>Shell, Claude, Copilot, Strands, and custom sessions opened from the board are tracked here by work item.</p>
             </article>
           </div>
         </section>
@@ -640,6 +664,7 @@ function createFallbackState(): WorkTerminalViewState {
     },
     columnSummaries: [],
     latestWorkItemTitle: null,
+    profileIssues: [],
     recentlyClosedSessions: [],
     selectedItemId: null,
     status: "Scaffold ready",

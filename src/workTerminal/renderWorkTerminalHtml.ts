@@ -1,11 +1,12 @@
 export interface WorkTerminalViewState {
   readonly agentProfiles: ReadonlyArray<{
+    readonly builtIn: boolean;
     readonly command: string;
     readonly id: string;
-    readonly kind: "claude" | "copilot";
+    readonly kind: "claude" | "copilot" | "custom" | "strands";
     readonly label: string;
     readonly resumeBehaviorLabel: string;
-    readonly status: "missing-command" | "ready";
+    readonly status: "invalid-configuration" | "missing-command" | "ready";
     readonly statusLabel: string;
     readonly usesContext: boolean;
   }>;
@@ -29,6 +30,10 @@ export interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
+  readonly profileIssues: ReadonlyArray<{
+    readonly message: string;
+    readonly profileId: string | null;
+  }>;
   readonly selectedItemId: string | null;
   readonly recentlyClosedSessions: ReadonlyArray<{
     readonly closedAt: string;
@@ -37,7 +42,7 @@ export interface WorkTerminalViewState {
     readonly itemDescription: string | null;
     readonly itemId: string;
     readonly itemTitle: string;
-    readonly kind: "claude" | "copilot" | "shell";
+    readonly kind: "claude" | "copilot" | "custom" | "shell" | "strands";
     readonly label: string;
     readonly profileId: string | null;
     readonly profileLabel: string | null;
@@ -55,7 +60,7 @@ export interface WorkTerminalViewState {
     readonly itemDescription: string | null;
     readonly itemId: string;
     readonly itemTitle: string;
-    readonly kind: "claude" | "copilot" | "shell";
+    readonly kind: "claude" | "copilot" | "custom" | "shell" | "strands";
     readonly label: string;
     readonly profileId: string | null;
     readonly profileLabel: string | null;
