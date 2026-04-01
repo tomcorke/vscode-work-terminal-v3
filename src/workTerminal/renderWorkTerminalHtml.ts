@@ -1,4 +1,14 @@
 export interface WorkTerminalViewState {
+  readonly agentProfiles: ReadonlyArray<{
+    readonly command: string;
+    readonly id: string;
+    readonly kind: "claude" | "copilot";
+    readonly label: string;
+    readonly resumeBehaviorLabel: string;
+    readonly status: "missing-command" | "ready";
+    readonly statusLabel: string;
+    readonly usesContext: boolean;
+  }>;
   readonly boardColumns: ReadonlyArray<{
     readonly id: string;
     readonly items: ReadonlyArray<{
@@ -23,11 +33,17 @@ export interface WorkTerminalViewState {
   readonly storagePath: string | null;
   readonly terminalSessionCountByItemId: Record<string, number>;
   readonly terminalSessions: ReadonlyArray<{
+    readonly command: string | null;
     readonly id: string;
+    readonly itemDescription: string | null;
     readonly itemId: string;
     readonly itemTitle: string;
-    readonly kind: "shell";
+    readonly kind: "claude" | "copilot" | "shell";
     readonly label: string;
+    readonly profileId: string | null;
+    readonly profileLabel: string | null;
+    readonly resumeSessionId: string | null;
+    readonly statusLabel: string;
   }>;
   readonly totalWorkItems: number;
   readonly workspaceName: string;

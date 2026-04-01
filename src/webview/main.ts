@@ -1,6 +1,16 @@
 import "./styles.css";
 
 interface WorkTerminalViewState {
+  readonly agentProfiles: ReadonlyArray<{
+    readonly command: string;
+    readonly id: string;
+    readonly kind: "claude" | "copilot";
+    readonly label: string;
+    readonly resumeBehaviorLabel: string;
+    readonly status: "missing-command" | "ready";
+    readonly statusLabel: string;
+    readonly usesContext: boolean;
+  }>;
   readonly boardColumns: ReadonlyArray<{
     readonly id: string;
     readonly items: ReadonlyArray<{
@@ -25,11 +35,17 @@ interface WorkTerminalViewState {
   readonly storagePath: string | null;
   readonly terminalSessionCountByItemId: Record<string, number>;
   readonly terminalSessions: ReadonlyArray<{
+    readonly command: string | null;
     readonly id: string;
+    readonly itemDescription: string | null;
     readonly itemId: string;
     readonly itemTitle: string;
-    readonly kind: "shell";
+    readonly kind: "claude" | "copilot" | "shell";
     readonly label: string;
+    readonly profileId: string | null;
+    readonly profileLabel: string | null;
+    readonly resumeSessionId: string | null;
+    readonly statusLabel: string;
   }>;
   readonly totalWorkItems: number;
   readonly workspaceName: string;
@@ -70,7 +86,7 @@ let state = persistedState?.viewState ?? window.__WORK_TERMINAL_INITIAL_STATE__ 
 
 render(state);
 persistState();
-vscode.postMessage({ type: "ready" });
+vscode.postMessage({ type: "ready", selectedItemId: state.selectedItemId });
 
 window.addEventListener("message", (event: MessageEvent<IncomingMessage>) => {
   if (event.data.type === "state-updated") {
@@ -100,21 +116,34 @@ root.addEventListener("click", (event: MouseEvent) => {
   }
 
   if (target.dataset.action === "launch-shell") {
-    if (!state.selectedItemId) {
+    const selectedItem = getSelectedItem(state);
+    if (!selectedItem) {
       return;
     }
 
-    const selectedItem = state.boardColumns
-      .flatMap((column) => column.items)
-      .find((item) => item.id === state.selectedItemId);
+    vscode.postMessage({
+      type: "launch-shell-requested",
+      itemDescription: selectedItem.description,
+      itemId: selectedItem.id,
+      itemTitle: selectedItem.title,
+    });
+    return;
+  }
 
-    if (selectedItem) {
-      vscode.postMessage({
-        type: "launch-shell-requested",
-        itemId: selectedItem.id,
-        itemTitle: selectedItem.title,
-      });
+  if (target.dataset.action === "launch-agent") {
+    const selectedItem = getSelectedItem(state);
+    const profileId = target.dataset.profileId;
+    if (!selectedItem || !profileId) {
+      return;
     }
+
+    vscode.postMessage({
+      type: "launch-agent-requested",
+      itemDescription: selectedItem.description,
+      itemId: selectedItem.id,
+      itemTitle: selectedItem.title,
+      profileId,
+    });
     return;
   }
 
@@ -141,10 +170,7 @@ function applyState(nextState: WorkTerminalViewState): void {
 
 function render(nextState: WorkTerminalViewState): void {
   state = nextState;
-  const selectedItem =
-    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === nextState.selectedItemId) ??
-    nextState.boardColumns.flatMap((column) => column.items)[0] ??
-    null;
+  const selectedItem = getSelectedItem(nextState);
   const selectedItemSessions = selectedItem
     ? nextState.terminalSessions.filter((session) => session.itemId === selectedItem.id)
     : [];
@@ -224,11 +250,29 @@ function render(nextState: WorkTerminalViewState): void {
             <article class="card">
               <h3>Selected item</h3>
               <p>${escapeHtml(selectedItem?.title ?? "No work items created yet.")}</p>
-              <p>${escapeHtml(selectedItem?.description ?? "Selection currently lives in the webview. Host-backed actions come next.")}</p>
+              <p>${escapeHtml(
+                selectedItem?.description ?? "Select a work item to launch shell or agent sessions.",
+              )}</p>
               ${
                 selectedItem
-                  ? `<div class="card-actions">
+                  ? `<div class="card-actions action-grid">
                       <button class="ghost-button" type="button" data-action="launch-shell">Open shell session</button>
+                      ${nextState.agentProfiles
+                        .map(
+                          (profile) => `
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              data-action="launch-agent"
+                              data-profile-id="${escapeHtml(profile.id)}"
+                              ${profile.status !== "ready" ? "disabled" : ""}
+                              title="${escapeHtml(profile.statusLabel)}"
+                            >
+                              ${escapeHtml(profile.label)}
+                            </button>
+                          `,
+                        )
+                        .join("")}
                       <span class="pill">${nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0} session${(nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0) === 1 ? "" : "s"}</span>
                     </div>`
                   : ""
@@ -244,7 +288,25 @@ function render(nextState: WorkTerminalViewState): void {
           </div>
           <div class="placeholder-stack">
             <article class="card">
-              <h3>Shell sessions</h3>
+              <h3>Agent launchers</h3>
+              <ul class="profile-list">
+                ${nextState.agentProfiles
+                  .map(
+                    (profile) => `
+                      <li class="profile-list-item">
+                        <div>
+                          <strong>${escapeHtml(profile.label)}</strong>
+                          <p>${escapeHtml(profile.resumeBehaviorLabel)}</p>
+                        </div>
+                        <div class="profile-status ${profile.status === "ready" ? "is-ready" : "is-missing"}">${escapeHtml(profile.statusLabel)}</div>
+                      </li>
+                    `,
+                  )
+                  .join("")}
+              </ul>
+            </article>
+            <article class="card">
+              <h3>Sessions for selected item</h3>
               ${
                 selectedItem
                   ? selectedItemSessions.length > 0
@@ -255,7 +317,8 @@ function render(nextState: WorkTerminalViewState): void {
                               <li class="session-list-item">
                                 <div>
                                   <strong>${escapeHtml(session.label)}</strong>
-                                  <p>${escapeHtml(session.itemTitle)}</p>
+                                  <p>${escapeHtml(session.statusLabel)}</p>
+                                  <p class="session-meta">${escapeHtml(describeSession(session))}</p>
                                 </div>
                                 <button
                                   class="ghost-button"
@@ -270,14 +333,14 @@ function render(nextState: WorkTerminalViewState): void {
                           )
                           .join("")}
                       </ul>`
-                    : `<p>No shell sessions are open for "${escapeHtml(selectedItem.title)}" yet.</p>`
-                  : "<p>Select a work item to manage its shell sessions.</p>"
+                    : `<p>No sessions are open for "${escapeHtml(selectedItem.title)}" yet.</p>`
+                  : "<p>Select a work item to manage its sessions.</p>"
               }
             </article>
             <article class="card">
               <h3>Host-managed sessions</h3>
               <p>${escapeHtml(nextState.status)}</p>
-              <p>Shell sessions currently open in VS Code's terminal panel are tracked here by work item.</p>
+              <p>Shell, Claude, and Copilot sessions opened from the board are tracked here by work item.</p>
             </article>
           </div>
         </section>
@@ -291,8 +354,17 @@ function render(nextState: WorkTerminalViewState): void {
   `;
 }
 
+function getSelectedItem(nextState: WorkTerminalViewState): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
+  return (
+    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === nextState.selectedItemId) ??
+    nextState.boardColumns.flatMap((column) => column.items)[0] ??
+    null
+  );
+}
+
 function createFallbackState(): WorkTerminalViewState {
   return {
+    agentProfiles: [],
     boardColumns: [],
     columnSummaries: [],
     latestWorkItemTitle: null,
@@ -312,6 +384,24 @@ function persistState(): void {
     selectedItemId: state.selectedItemId,
     viewState: state,
   });
+}
+
+function describeSession(session: WorkTerminalViewState["terminalSessions"][number]): string {
+  const details = [session.profileLabel ?? capitalize(session.kind)];
+
+  if (session.resumeSessionId) {
+    details.push(`resume id ${session.resumeSessionId}`);
+  }
+
+  if (session.command) {
+    details.push(`cmd: ${session.command}`);
+  }
+
+  return details.join(" · ");
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function escapeHtml(value: string): string {

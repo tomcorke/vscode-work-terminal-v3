@@ -1,19 +1,28 @@
 import * as vscode from "vscode";
 
+import type { AgentProfileId } from "../agents";
 import type { TerminalSessionStore } from "../terminals";
+import type { WorkItemStore } from "../workItems";
 import { getNonce } from "./getNonce";
 import {
   renderWorkTerminalHtml,
   type WorkTerminalViewState,
 } from "./renderWorkTerminalHtml";
-import type { WorkItemStore } from "../workItems";
 
 type WorkTerminalWebviewMessage =
-  | { readonly type: "ready" }
+  | { readonly type: "ready"; readonly selectedItemId: string | null }
   | { readonly type: "create-work-item-requested" }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
   | {
+      readonly type: "launch-agent-requested";
+      readonly itemDescription: string | null;
+      readonly itemId: string;
+      readonly itemTitle: string;
+      readonly profileId: AgentProfileId;
+    }
+  | {
       readonly type: "launch-shell-requested";
+      readonly itemDescription: string | null;
       readonly itemId: string;
       readonly itemTitle: string;
     }
@@ -32,7 +41,13 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     private readonly disposables: vscode.Disposable[],
     private readonly store: WorkItemStore,
     private readonly terminalStore: TerminalSessionStore,
-  ) {}
+  ) {
+    this.disposables.push(
+      this.terminalStore.onDidChangeSessions(() => {
+        void this.refresh("Updated terminal session state");
+      }),
+    );
+  }
 
   public async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this.view = webviewView;
@@ -57,6 +72,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(
       async (message: WorkTerminalWebviewMessage) => {
         if (message.type === "ready") {
+          this.selectedItemId = message.selectedItemId;
           await this.postState("Work Terminal view connected");
           return;
         }
@@ -78,7 +94,17 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
         }
 
         if (message.type === "launch-shell-requested") {
-          await this.launchShell(message.itemId, message.itemTitle);
+          await this.launchShell(message.itemId, message.itemTitle, message.itemDescription);
+          return;
+        }
+
+        if (message.type === "launch-agent-requested") {
+          await this.launchAgent(
+            message.profileId,
+            message.itemId,
+            message.itemTitle,
+            message.itemDescription,
+          );
           return;
         }
 
@@ -128,11 +154,34 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     void vscode.window.showInformationMessage(`Created work item "${item.title}".`);
   }
 
-  public async launchShell(itemId: string, itemTitle: string): Promise<void> {
+  public async launchShell(itemId: string, itemTitle: string, itemDescription: string | null): Promise<void> {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const session = this.terminalStore.createShellSession(itemId, itemTitle, cwd);
+    const session = this.terminalStore.createShellSession(itemId, itemTitle, itemDescription, cwd);
 
     await this.refresh(`Opened shell session "${session.label}"`);
+  }
+
+  public async launchAgent(
+    profileId: AgentProfileId,
+    itemId: string,
+    itemTitle: string,
+    itemDescription: string | null,
+  ): Promise<void> {
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const result = this.terminalStore.createAgentSession({
+      cwd,
+      itemDescription,
+      itemId,
+      itemTitle,
+      profileId,
+    });
+
+    if (!result.session) {
+      void vscode.window.showWarningMessage(result.error ?? "Unable to launch that agent session.");
+      return;
+    }
+
+    await this.refresh(`Opened ${result.session.profileLabel ?? result.session.kind} session "${result.session.label}"`);
   }
 
   public focusTerminal(terminalId: string): void {
@@ -162,6 +211,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     const terminalSummary = this.terminalStore.getSummary();
 
     return {
+      agentProfiles: terminalSummary.agentProfiles,
       boardColumns: summary.boardColumns,
       columnSummaries: summary.columnSummaries,
       latestWorkItemTitle: summary.latestWorkItemTitle,

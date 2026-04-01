@@ -255,3 +255,45 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+
+.action-grid {
+  flex-wrap: wrap;
+}
+
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.profile-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.profile-list-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.profile-list-item p,
+.profile-status,
+.session-meta {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.profile-status.is-ready {
+  color: var(--vscode-testing-iconPassed);
+}
+
+.profile-status.is-missing {
+  color: var(--vscode-testing-iconFailed);
+}

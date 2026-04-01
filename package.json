@@ -51,6 +51,31 @@
           "name": "Board"
         }
       ]
+    },
+    "configuration": {
+      "title": "Work Terminal",
+      "properties": {
+        "workTerminal.claudeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "Command used to launch Claude sessions."
+        },
+        "workTerminal.claudeExtraArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments appended when launching Claude sessions."
+        },
+        "workTerminal.copilotCommand": {
+          "type": "string",
+          "default": "copilot",
+          "description": "Command used to launch Copilot sessions."
+        },
+        "workTerminal.copilotExtraArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments appended when launching Copilot sessions."
+        }
+      }
     }
   },
   "scripts": {

@@ -9,6 +9,18 @@ describe("renderWorkTerminalHtml", () => {
       nonce: "test-nonce",
       scriptUri: "https://example.invalid/dist/webview/main.js",
       state: {
+        agentProfiles: [
+          {
+            command: "claude",
+            id: "claude",
+            kind: "claude",
+            label: "Claude",
+            resumeBehaviorLabel: "Tracks a launch session id for resume-aware workflows.",
+            status: "ready",
+            statusLabel: "Ready - /usr/local/bin/claude",
+            usesContext: false,
+          },
+        ],
         boardColumns: [
           {
             id: "active",
@@ -39,11 +51,17 @@ describe("renderWorkTerminalHtml", () => {
         },
         terminalSessions: [
           {
+            command: "claude",
             id: "223e4567-e89b-12d3-a456-426614174000",
+            itemDescription: "Test selection details",
             itemId: "123e4567-e89b-12d3-a456-426614174000",
             itemTitle: "Demo task",
-            kind: "shell",
-            label: "Demo task - Shell",
+            kind: "claude",
+            label: "Demo task - Claude",
+            profileId: "claude",
+            profileLabel: "Claude",
+            resumeSessionId: "323e4567-e89b-12d3-a456-426614174000",
+            statusLabel: "Ready - /usr/local/bin/claude",
           },
         ],
         totalWorkItems: 1,
@@ -58,6 +76,7 @@ describe("renderWorkTerminalHtml", () => {
     expect(html).toContain("window.__WORK_TERMINAL_INITIAL_STATE__");
     expect(html).toContain("Demo Workspace");
     expect(html).toContain("Demo task");
+    expect(html).toContain("Claude");
     expect(html).toContain("nonce=\"test-nonce\"");
     expect(html).toContain("https://example.invalid/dist/webview/main.css");
     expect(html).toContain("https://example.invalid/dist/webview/main.js");
