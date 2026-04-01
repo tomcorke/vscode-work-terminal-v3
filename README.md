@@ -4,12 +4,14 @@ VS Code port of `obsidian-work-terminal`, rebuilt for the VS Code extension host
 
 ## Current status
 
-This repository is in active bootstrap. The first implementation slice sets up:
+The current branch delivers a functional vertical slice of the VS Code port:
 
-- TypeScript extension scaffolding
-- bundled extension-host and webview assets
-- a registered `Work Terminal` activity bar view
-- baseline linting, type checking, and unit tests
+- a `Work Terminal` activity bar view with a webview-based board
+- persisted work items stored in `.work-terminal/work-items.v1.json` inside the current workspace
+- create-work-item flow from the extension host
+- per-item shell terminals
+- configurable Claude and Copilot launch profiles with work-item context prompts
+- linting, type checking, unit tests, coverage, and VSIX packaging
 
 ## Development
 
@@ -49,6 +51,8 @@ npm run coverage
 2. Run `npm install`.
 3. Press `F5` using the `Run Work Terminal extension` launch config.
 4. Open the `Work Terminal` activity bar view.
+5. Use `Work Terminal: Create Work Item` or the in-view controls to seed items in the current workspace.
+6. Launch shell, Claude, or Copilot sessions from a selected work item.
 
 For iterative rebuilds while you edit, you can still run `npm run watch` manually in a terminal.
 
@@ -56,13 +60,15 @@ The repository now includes:
 
 - `.vscode/launch.json` for extension-host and Vitest debugging
 - `.vscode/tasks.json` for build, watch, check, and coverage tasks
+- built-in settings for `workTerminal.claudeCommand`, `workTerminal.claudeExtraArgs`, `workTerminal.copilotCommand`, and `workTerminal.copilotExtraArgs`
 
-## Planned architecture
+## Architecture snapshot
 
-The extension is being shaped around the same broad responsibilities as the Obsidian implementation:
+The extension currently mirrors the same high-level split as the Obsidian implementation:
 
 - extension-host orchestration for VS Code APIs
-- a webview-based board and terminal UI shell
-- future terminal/session, persistence, and agent integration layers
+- a webview-based board UI
+- file-backed work-item persistence
+- terminal/session and agent launch helpers
 
-The initial scaffold keeps those boundaries in place without implementing terminal management yet.
+Parity gaps with the Obsidian plugin are still expected, but the repo is past the bare scaffold stage and now supports board state, terminal launches, and agent-aware session metadata.
