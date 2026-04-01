@@ -38,6 +38,12 @@ describe("renderWorkTerminalHtml", () => {
             label: "Active",
           },
         ],
+        collapsedColumns: {
+          active: false,
+          done: false,
+          priority: false,
+          todo: false,
+        },
         columnSummaries: [
           { count: 1, id: "active", label: "Active" },
           { count: 0, id: "todo", label: "To Do" },
@@ -53,7 +59,7 @@ describe("renderWorkTerminalHtml", () => {
         terminalSessions: [
           {
             activityState: "active",
-            activityStateLabel: "Detected recent terminal activity",
+            activityStateLabel: "Recent terminal signal observed",
             command: "claude",
             id: "223e4567-e89b-12d3-a456-426614174000",
             itemDescription: "Test selection details",
@@ -83,6 +89,7 @@ describe("renderWorkTerminalHtml", () => {
     expect(html).toContain("nonce=\"test-nonce\"");
     expect(html).toContain("https://example.invalid/dist/webview/main.css");
     expect(html).toContain("https://example.invalid/dist/webview/main.js");
+    expect(html).toContain("collapsedColumns");
   });
 
   it("escapes line separator characters in the bootstrapped state", () => {
@@ -109,6 +116,12 @@ describe("renderWorkTerminalHtml", () => {
             label: "Active",
           },
         ],
+        collapsedColumns: {
+          active: false,
+          done: false,
+          priority: false,
+          todo: false,
+        },
         columnSummaries: [{ count: 1, id: "active", label: "Active" }],
         latestWorkItemTitle: "Demo\u2029task",
         recentlyClosedSessions: [],

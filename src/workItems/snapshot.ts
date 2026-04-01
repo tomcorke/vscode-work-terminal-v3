@@ -27,6 +27,7 @@ type UnknownRecord = Record<string, unknown>;
 export function createEmptyPersistedWorkItemSnapshot(): PersistedWorkItemSnapshot {
   return {
     version: WORK_ITEM_SNAPSHOT_VERSION,
+    collapsedColumns: createEmptyCollapsedColumns(),
     items: {},
     columnOrder: [...DEFAULT_WORK_ITEM_COLUMN_ORDER],
     itemOrderByColumn: createEmptyItemOrderByColumn(),
@@ -37,6 +38,7 @@ export function normalizePersistedWorkItemSnapshot(value: unknown): PersistedWor
   const record = asRecord(value);
   const items = normalizePersistedItems(record.items);
   const columnOrder = normalizeColumnOrder(record.columnOrder);
+  const collapsedColumns = normalizeCollapsedColumns(record.collapsedColumns);
   const rawItemOrderByColumn = asRecord(record.itemOrderByColumn);
   const itemOrderByColumn = createEmptyItemOrderByColumn();
 
@@ -62,6 +64,7 @@ export function normalizePersistedWorkItemSnapshot(value: unknown): PersistedWor
 
   return {
     version: WORK_ITEM_SNAPSHOT_VERSION,
+    collapsedColumns,
     items,
     columnOrder,
     itemOrderByColumn,
@@ -96,6 +99,22 @@ export function listPersistedWorkItemSnapshotIssues(value: unknown): SnapshotVal
       }
 
       issues.push(...listPersistedWorkItemIssues(item, `items.${id}`, id));
+    }
+  }
+
+  if (!isRecord(value.collapsedColumns)) {
+    issues.push({
+      path: "collapsedColumns",
+      message: "Collapsed columns must be a record keyed by column.",
+    });
+  } else {
+    for (const column of WORK_ITEM_COLUMNS) {
+      if (typeof value.collapsedColumns[column] !== "boolean") {
+        issues.push({
+          path: `collapsedColumns.${column}`,
+          message: "Collapsed column flags must be boolean values.",
+        });
+      }
     }
   }
 
@@ -320,6 +339,15 @@ function createEmptyItemOrderByColumn(): Record<WorkItemColumn, WorkItemId[]> {
   };
 }
 
+function createEmptyCollapsedColumns(): Record<WorkItemColumn, boolean> {
+  return {
+    priority: false,
+    todo: false,
+    active: false,
+    done: false,
+  };
+}
+
 function normalizeColumnOrder(value: unknown): WorkItemColumn[] {
   const orderedColumns = Array.isArray(value) ? value : [];
   const deduped: WorkItemColumn[] = [];
@@ -352,6 +380,17 @@ function normalizeOrderedIds(value: unknown): WorkItemId[] {
   }
 
   return deduped;
+}
+
+function normalizeCollapsedColumns(value: unknown): Record<WorkItemColumn, boolean> {
+  const record = asRecord(value);
+
+  return {
+    priority: Boolean(record.priority),
+    todo: Boolean(record.todo),
+    active: Boolean(record.active),
+    done: Boolean(record.done),
+  };
 }
 
 function normalizeNullableTimestamp(value: unknown, fallback: string | null): string | null {

@@ -89,4 +89,84 @@ describe("WorkItemStore", () => {
     const summary = await store.getSummary();
     expect(summary.totalCount).toBe(1);
   });
+
+  it("reorders items within a column and persists the result", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const first = await store.createWorkItem({ title: "First item" });
+    const second = await store.createWorkItem({ title: "Second item" });
+
+    const reordered = await store.reorderItems(second!.id, "todo", "todo", 1);
+    expect(reordered).toBe(true);
+
+    const summary = await store.getSummary();
+    expect(summary.boardColumns.find((column) => column.id === "todo")?.items.map((item) => item.title)).toEqual([
+      "First item",
+      "Second item",
+    ]);
+
+    const reloadedStore = new WorkItemStore(workspaceRoot);
+    const reloadedSummary = await reloadedStore.getSummary();
+    expect(reloadedSummary.boardColumns.find((column) => column.id === "todo")?.items.map((item) => item.title)).toEqual([
+      "First item",
+      "Second item",
+    ]);
+
+    expect(first?.id).not.toBe(second?.id);
+  });
+
+  it("moves items across columns and updates persisted state", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const created = await store.createWorkItem({ title: "Move me", state: "todo" });
+
+    const moved = await store.reorderItems(created!.id, "todo", "done", 0);
+    expect(moved).toBe(true);
+
+    const reloadedStore = new WorkItemStore(workspaceRoot);
+    const snapshot = await reloadedStore.loadSnapshot();
+    const movedItem = snapshot.items[created!.id];
+
+    expect(snapshot.itemOrderByColumn.todo).not.toContain(created!.id);
+    expect(snapshot.itemOrderByColumn.done[0]).toBe(created!.id);
+    expect(movedItem?.column).toBe("done");
+    expect(movedItem?.state).toBe("done");
+    expect(movedItem?.completedAt).not.toBeNull();
+  });
+
+  it("toggles collapsed column state and persists it", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const toggled = await store.toggleColumnCollapsed("active");
+    expect(toggled).toBe(true);
+
+    const summary = await store.getSummary();
+    expect(summary.collapsedColumns.active).toBe(true);
+
+    const reloadedStore = new WorkItemStore(workspaceRoot);
+    const reloadedSummary = await reloadedStore.getSummary();
+    expect(reloadedSummary.collapsedColumns.active).toBe(true);
+  });
+
+  it("preserves abandoned state when reordering inside the done column", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const activeItem = await store.createWorkItem({ title: "Done item", state: "done" });
+    const abandonedItem = await store.createWorkItem({ title: "Abandoned item", state: "abandoned" });
+
+    const reordered = await store.reorderItems(abandonedItem!.id, "done", "done", 1);
+    expect(reordered).toBe(true);
+
+    const snapshot = await store.loadSnapshot();
+    expect(snapshot.items[abandonedItem!.id]?.state).toBe("abandoned");
+    expect(snapshot.items[activeItem!.id]?.state).toBe("done");
+  });
 });

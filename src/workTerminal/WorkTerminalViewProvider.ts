@@ -13,7 +13,15 @@ type WorkTerminalWebviewMessage =
   | { readonly type: "ready"; readonly selectedItemId: string | null }
   | { readonly type: "create-work-item-requested" }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
+  | {
+      readonly type: "reorder-item-requested";
+      readonly fromColumn: "priority" | "todo" | "active" | "done";
+      readonly itemId: string;
+      readonly targetIndex: number;
+      readonly toColumn: "priority" | "todo" | "active" | "done";
+    }
   | { readonly type: "reopen-recent-session-requested"; readonly sessionId: string }
+  | { readonly type: "toggle-column-collapse-requested"; readonly columnId: "priority" | "todo" | "active" | "done" }
   | {
       readonly type: "launch-agent-requested";
       readonly itemDescription: string | null;
@@ -91,6 +99,34 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
         if (message.type === "work-item-selected") {
           this.selectedItemId = message.itemId;
           await this.postState(this.lastStatus);
+          return;
+        }
+
+        if (message.type === "reorder-item-requested") {
+          const reordered = await this.store.reorderItems(
+            message.itemId,
+            message.fromColumn,
+            message.toColumn,
+            message.targetIndex,
+          );
+
+          if (!reordered) {
+            void vscode.window.showWarningMessage("That work item could not be reordered.");
+            return;
+          }
+
+          await this.refresh("Reordered work items");
+          return;
+        }
+
+        if (message.type === "toggle-column-collapse-requested") {
+          const toggled = await this.store.toggleColumnCollapsed(message.columnId);
+          if (!toggled) {
+            void vscode.window.showWarningMessage("That column could not be updated.");
+            return;
+          }
+
+          await this.refresh("Updated board layout");
           return;
         }
 
@@ -230,6 +266,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     return {
       agentProfiles: terminalSummary.agentProfiles,
       boardColumns: summary.boardColumns,
+      collapsedColumns: summary.collapsedColumns,
       columnSummaries: summary.columnSummaries,
       latestWorkItemTitle: summary.latestWorkItemTitle,
       recentlyClosedSessions: terminalSummary.recentlyClosedSessions,

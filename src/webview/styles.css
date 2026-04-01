@@ -82,6 +82,23 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.filter-input {
+  min-width: 220px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 999px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  padding: 6px 12px;
+}
+
+.board-helper {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
 }
 
 .board-grid {
@@ -101,11 +118,21 @@ select {
   padding: 12px;
 }
 
+.board-column.is-collapsed {
+  min-height: auto;
+}
+
 .board-column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.board-column-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .board-column-header h3 {
@@ -116,6 +143,18 @@ select {
 .board-column-items {
   display: grid;
   gap: 10px;
+  min-height: 42px;
+  border-radius: 10px;
+}
+
+.board-column-items.is-drag-enabled {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.board-column-items.is-drop-target {
+  background: color-mix(in srgb, var(--vscode-list-dropBackground) 40%, transparent);
+  outline: 1px dashed var(--vscode-focusBorder);
+  padding: 6px;
 }
 
 .work-item-card {
@@ -128,6 +167,14 @@ select {
   text-align: left;
   padding: 10px;
   cursor: pointer;
+}
+
+.work-item-card[draggable="true"] {
+  cursor: grab;
+}
+
+.work-item-card.is-dragging {
+  opacity: 0.55;
 }
 
 .work-item-card:hover {
@@ -233,20 +280,23 @@ select {
 }
 
 .pill,
-.ghost-button {
+.ghost-button,
+.column-toggle {
   border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 12px;
 }
 
-.ghost-button {
+.ghost-button,
+.column-toggle {
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
   cursor: pointer;
 }
 
-.ghost-button:hover {
+.ghost-button:hover,
+.column-toggle:hover {
   background: var(--vscode-button-hoverBackground);
 }
 
@@ -255,7 +305,6 @@ select {
     grid-template-columns: 1fr;
   }
 }
-
 
 .action-grid {
   flex-wrap: wrap;
