@@ -47,9 +47,10 @@ npm run coverage
 
 1. Open this repository in VS Code.
 2. Run `npm install`.
-3. Start `npm run watch` in a terminal.
-4. Press `F5` using the `Run Work Terminal extension` launch config.
-5. Open the `Work Terminal` activity bar view.
+3. Press `F5` using the `Run Work Terminal extension` launch config.
+4. Open the `Work Terminal` activity bar view.
+
+For iterative rebuilds while you edit, you can still run `npm run watch` manually in a terminal.
 
 The repository now includes:
 

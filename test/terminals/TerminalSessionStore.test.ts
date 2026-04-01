@@ -114,6 +114,8 @@ describe("TerminalSessionStore", () => {
   });
 
   it("creates agent sessions and sends context prompts after launch", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
     const { TerminalSessionStore } = await import("../../src/terminals");
     const store = new TerminalSessionStore();
 
