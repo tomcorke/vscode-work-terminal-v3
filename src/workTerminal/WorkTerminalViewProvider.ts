@@ -9,6 +9,7 @@ import type { WorkItemStore } from "../workItems";
 
 type WorkTerminalWebviewMessage =
   | { readonly type: "ready" }
+  | { readonly type: "create-work-item-requested" }
   | { readonly type: "refresh-requested" };
 
 export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
@@ -51,6 +52,11 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
         if (message.type === "refresh-requested") {
           await this.refresh();
+          return;
+        }
+
+        if (message.type === "create-work-item-requested") {
+          await this.createWorkItemFromPrompt();
         }
       },
       undefined,
@@ -66,6 +72,34 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     await this.postState(status);
   }
 
+  public async createWorkItemFromPrompt(): Promise<void> {
+    const title = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Create a work item",
+      placeHolder: "Investigate task sync bug",
+      validateInput: (value) => (value.trim().length > 0 ? null : "A title is required."),
+    });
+
+    if (!title) {
+      return;
+    }
+
+    const state = await promptForState();
+    if (!state) {
+      return;
+    }
+
+    const item = await this.store.createWorkItem({ title, state });
+
+    if (!item) {
+      void vscode.window.showWarningMessage("Work Terminal needs an open workspace to persist work items.");
+      return;
+    }
+
+    await this.refresh(`Created "${item.title}"`);
+    void vscode.window.showInformationMessage(`Created work item "${item.title}".`);
+  }
+
   private async postState(status: string): Promise<void> {
     const state = await this.createViewState(status);
 
@@ -79,6 +113,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     const summary = await this.store.getSummary();
 
     return {
+      boardColumns: summary.boardColumns,
       columnSummaries: summary.columnSummaries,
       latestWorkItemTitle: summary.latestWorkItemTitle,
       status,
@@ -91,4 +126,20 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       lastUpdatedLabel: new Date().toLocaleTimeString(),
     };
   }
+}
+
+async function promptForState(): Promise<"priority" | "todo" | "active" | "done" | undefined> {
+  const choices = [
+    { label: "To Do", state: "todo" },
+    { label: "Active", state: "active" },
+    { label: "Priority", state: "priority" },
+    { label: "Done", state: "done" },
+  ] as const;
+
+  const selection = await vscode.window.showQuickPick(choices, {
+    ignoreFocusOut: true,
+    placeHolder: "Choose the initial state",
+  });
+
+  return selection?.state;
 }

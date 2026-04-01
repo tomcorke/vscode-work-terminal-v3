@@ -1,4 +1,17 @@
 export interface WorkTerminalViewState {
+  readonly boardColumns: ReadonlyArray<{
+    readonly id: string;
+    readonly items: ReadonlyArray<{
+      readonly description: string | null;
+      readonly id: string;
+      readonly isBlocked: boolean;
+      readonly priorityLevel: string;
+      readonly sourceKind: string;
+      readonly title: string;
+      readonly updatedAt: string;
+    }>;
+    readonly label: string;
+  }>;
   readonly columnSummaries: ReadonlyArray<{
     readonly count: number;
     readonly id: string;

@@ -33,6 +33,8 @@ export {
 } from "./snapshot";
 export {
   WorkItemStore,
+  type WorkItemBoardCard,
+  type WorkItemBoardColumn,
   type WorkItemColumnSummary,
   type WorkItemStoreSummary,
 } from "./WorkItemStore";

@@ -28,7 +28,24 @@ export interface WorkItemColumnSummary {
   readonly count: number;
 }
 
+export interface WorkItemBoardCard {
+  readonly description: string | null;
+  readonly id: string;
+  readonly isBlocked: boolean;
+  readonly priorityLevel: string;
+  readonly sourceKind: string;
+  readonly title: string;
+  readonly updatedAt: string;
+}
+
+export interface WorkItemBoardColumn {
+  readonly id: WorkItemColumn;
+  readonly items: readonly WorkItemBoardCard[];
+  readonly label: string;
+}
+
 export interface WorkItemStoreSummary {
+  readonly boardColumns: readonly WorkItemBoardColumn[];
   readonly columnSummaries: readonly WorkItemColumnSummary[];
   readonly latestWorkItemTitle: string | null;
   readonly storagePath: string | null;
@@ -78,6 +95,22 @@ export class WorkItemStore {
     const latest = [...items].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 
     return {
+      boardColumns: WORK_ITEM_COLUMNS.map((column) => ({
+        id: column,
+        items: snapshot.itemOrderByColumn[column]
+          .map((id) => snapshot.items[id])
+          .filter((item): item is WorkItem => Boolean(item))
+          .map((item) => ({
+            description: item.description,
+            id: item.id,
+            isBlocked: item.priority.isBlocked,
+            priorityLevel: item.priority.level,
+            sourceKind: item.source.kind,
+            title: item.title,
+            updatedAt: item.updatedAt,
+          })),
+        label: COLUMN_LABELS[column],
+      })),
       columnSummaries: WORK_ITEM_COLUMNS.map((column) => ({
         id: column,
         label: COLUMN_LABELS[column],
@@ -141,4 +174,3 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
       (error as NodeJS.ErrnoException).code === "ENOENT",
   );
 }
-
