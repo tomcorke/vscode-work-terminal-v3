@@ -383,7 +383,9 @@ describe("TerminalSessionStore", () => {
 
     await vi.advanceTimersByTimeAsync(300);
     expect(createdTerminals[1].sendText).not.toHaveBeenCalled();
-    expect(restoredStore.getSummary().sessions[0]?.statusLabel).toContain("without replaying the context prompt");
+    expect(restoredStore.getSummary().sessions[0]?.statusLabel).toBe(
+      "Tracks a launch session id and sends work item context after launch. Resumed without replaying the context prompt.",
+    );
 
     restoredStore.dispose();
   });

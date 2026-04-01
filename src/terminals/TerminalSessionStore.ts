@@ -227,7 +227,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     });
     const statusLabel = profile.usesContext
       ? (createOptions.skipInitialPrompt
-        ? `${profileSummary.resumeBehaviorLabel}. Resumed without replaying the context prompt.`
+        ? `${profileSummary.resumeBehaviorLabel} Resumed without replaying the context prompt.`
         : `${profileSummary.statusLabel}. Context prompt sent after launch.`)
       : profileSummary.resumeBehaviorLabel;
     const summary: TerminalSessionSummary = {
