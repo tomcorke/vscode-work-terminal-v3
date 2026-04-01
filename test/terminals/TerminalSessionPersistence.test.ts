@@ -118,6 +118,119 @@ describe("TerminalSessionPersistence", () => {
     const files = await readdir(join(workspaceRoot, ".work-terminal"));
     expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
   });
+
+  it("backs up corrupt snapshots before loading sessions", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, "{ not valid json\n", "utf8");
+
+    await expect(persistence.loadSessions()).resolves.toEqual([]);
+
+    const files = await readdir(join(workspaceRoot, ".work-terminal"));
+    expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
+  });
+
+  it("backs up snapshots with unsupported versions before loading sessions", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, JSON.stringify({
+      recentlyClosedSessions: [],
+      sessions: [],
+      version: 99,
+    }, null, 2), "utf8");
+
+    await expect(persistence.loadSessions()).resolves.toEqual([]);
+
+    const files = await readdir(join(workspaceRoot, ".work-terminal"));
+    expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
+  });
+
+  it("backs up snapshots with malformed persisted sessions before loading sessions", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, JSON.stringify({
+      recentlyClosedSessions: [],
+      sessions: [
+        {
+          itemId: "item-1",
+          itemTitle: "Investigate regression",
+          kind: "shell",
+          label: "Investigate regression - Shell",
+          statusLabel: "Local shell session",
+        },
+      ],
+      version: 1,
+    }, null, 2), "utf8");
+
+    await expect(persistence.loadSessions()).resolves.toEqual([]);
+
+    const files = await readdir(join(workspaceRoot, ".work-terminal"));
+    expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
+  });
+
+  it("backs up snapshots with malformed recently closed sessions before loading them", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, JSON.stringify({
+      recentlyClosedSessions: [
+        {
+          ...createPersistedSession({ id: "session-1" }),
+        },
+      ],
+      sessions: [],
+      version: 1,
+    }, null, 2), "utf8");
+
+    await expect(persistence.loadRecentlyClosedSessions()).resolves.toEqual([]);
+
+    const files = await readdir(join(workspaceRoot, ".work-terminal"));
+    expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
+  });
+
+  it("backs up snapshots with invalid recently closed timestamps before loading them", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, JSON.stringify({
+      recentlyClosedSessions: [
+        createRecentlyClosedSession({
+          closedAt: "not-a-date",
+          id: "session-1",
+        }),
+      ],
+      sessions: [],
+      version: 1,
+    }, null, 2), "utf8");
+
+    await expect(persistence.loadRecentlyClosedSessions()).resolves.toEqual([]);
+
+    const files = await readdir(join(workspaceRoot, ".work-terminal"));
+    expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
+  });
 });
 
 function createPersistedSession(overrides: Partial<PersistedTerminalSession> = {}): PersistedTerminalSession {

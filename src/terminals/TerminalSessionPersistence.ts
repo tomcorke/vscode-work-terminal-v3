@@ -136,7 +136,15 @@ export class TerminalSessionPersistence {
     try {
       return await this.loadSnapshot();
     } catch (error) {
-      if (isMissingFileError(error) || error instanceof CorruptSnapshotError) {
+      if (error instanceof CorruptSnapshotError) {
+        console.warn(
+          `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the terminal session store.`,
+        );
+        await this.backupCorruptSnapshot(error.storagePath);
+        return createEmptyPersistedTerminalSnapshot();
+      }
+
+      if (isMissingFileError(error)) {
         return createEmptyPersistedTerminalSnapshot();
       }
 
@@ -215,27 +223,42 @@ function createEmptyPersistedTerminalSnapshot(): PersistedTerminalSnapshot {
 
 function normalizePersistedTerminalSnapshot(input: unknown): PersistedTerminalSnapshot {
   if (!isRecord(input)) {
-    return createEmptyPersistedTerminalSnapshot();
+    throw new TypeError("Terminal session snapshot must be an object.");
   }
 
-  const version = input.version === SNAPSHOT_VERSION ? SNAPSHOT_VERSION : SNAPSHOT_VERSION;
-  const recentlyClosedSessions = Array.isArray(input.recentlyClosedSessions)
-    ? pruneRecentlyClosedSessions(
-        input.recentlyClosedSessions
-          .map((session) => normalizeRecentlyClosedTerminalSession(session))
-          .filter((session): session is RecentlyClosedTerminalSession => session !== null),
-      )
-    : [];
-  const sessions = Array.isArray(input.sessions)
-    ? input.sessions
-        .map((session) => normalizePersistedTerminalSession(session))
-        .filter((session): session is PersistedTerminalSession => session !== null)
-    : [];
+  if (input.version !== SNAPSHOT_VERSION) {
+    throw new TypeError(`Unsupported terminal session snapshot version: ${String(input.version)}`);
+  }
+
+  if (!Array.isArray(input.recentlyClosedSessions)) {
+    throw new TypeError("Terminal session snapshot recently closed sessions must be an array.");
+  }
+
+  if (!Array.isArray(input.sessions)) {
+    throw new TypeError("Terminal session snapshot sessions must be an array.");
+  }
+
+  const recentlyClosedSessions = pruneRecentlyClosedSessions(
+    input.recentlyClosedSessions.map((session, index) => {
+      const normalized = normalizeRecentlyClosedTerminalSession(session);
+      if (!normalized) {
+        throw new TypeError(`Invalid recently closed terminal session at index ${index}.`);
+      }
+      return normalized;
+    }),
+  );
+  const sessions = input.sessions.map((session, index) => {
+    const normalized = normalizePersistedTerminalSession(session);
+    if (!normalized) {
+      throw new TypeError(`Invalid terminal session at index ${index}.`);
+    }
+    return normalized;
+  });
 
   return {
     recentlyClosedSessions,
     sessions,
-    version,
+    version: SNAPSHOT_VERSION,
   };
 }
 
@@ -278,7 +301,7 @@ function normalizeRecentlyClosedTerminalSession(input: unknown): RecentlyClosedT
   }
 
   const closedAt = asNonEmptyString(input.closedAt);
-  if (!closedAt) {
+  if (!closedAt || !Number.isFinite(Date.parse(closedAt))) {
     return null;
   }
 
@@ -328,10 +351,7 @@ function pruneRecentlyClosedSessions(
   const cutoff = Date.now() - RECENTLY_CLOSED_MAX_AGE_MS;
 
   return [...sessions]
-    .filter((session) => {
-      const timestamp = Date.parse(session.closedAt);
-      return Number.isFinite(timestamp) && timestamp >= cutoff;
-    })
+    .filter((session) => Date.parse(session.closedAt) >= cutoff)
     .sort((left, right) => right.closedAt.localeCompare(left.closedAt))
     .slice(0, MAX_RECENTLY_CLOSED_SESSIONS);
 }
