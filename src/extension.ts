@@ -17,6 +17,7 @@ export function activate(context: vscode.ExtensionContext): void {
       provider.reveal();
     }),
     vscode.commands.registerCommand("workTerminal.refreshView", async () => {
+      await vscode.commands.executeCommand("workbench.view.extension.workTerminal");
       await provider.refresh();
     }),
     vscode.commands.registerCommand("workTerminal.createWorkItem", async () => {
