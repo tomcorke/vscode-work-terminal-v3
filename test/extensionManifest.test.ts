@@ -39,7 +39,6 @@ describe("extension manifest", () => {
 
     const iconPath = activityBarContainer?.icon;
     expect(iconPath).toBe("media/work-terminal-activity-bar.svg");
-    expect(iconPath).toBeTruthy();
     expect(existsSync(path.join(repoRoot, iconPath!))).toBe(true);
   });
 
