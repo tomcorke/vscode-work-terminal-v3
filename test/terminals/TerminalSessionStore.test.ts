@@ -415,6 +415,31 @@ describe("TerminalSessionStore", () => {
 
     store.dispose();
   });
+
+  it("does not mark agent sessions active when they are only refocused from the board", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude",
+    });
+
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(store.getSummary().sessions[0]?.activityState).toBe("waiting");
+
+    expect(store.focusSession(result.session!.id)).toBe(true);
+    expect(store.getSummary().sessions[0]?.activityState).toBe("waiting");
+
+    store.dispose();
+  });
 });
 
 async function waitForPersistedSessionCount(store: { getStoragePath(): string | null }, expectedCount: number): Promise<void> {

@@ -360,7 +360,6 @@ export class TerminalSessionStore implements vscode.Disposable {
     }
 
     session.terminal.show(true);
-    this.markSessionActivity(id, { emitChange: true });
     return true;
   }
 
@@ -627,7 +626,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     }
 
     const nextActivityState = deriveAgentActivityState(session, now);
-    const nextActivityStateLabel = getAgentActivityStateLabel(nextActivityState);
+    const nextActivityStateLabel = getAgentActivityStateLabel(nextActivityState, session.hasDetectedInteraction);
 
     if (
       session.summary.activityState === nextActivityState &&
@@ -668,10 +667,10 @@ function deriveAgentActivityState(session: StoredTerminalSession, now: number): 
   return session.hasDetectedInteraction ? "active" : "waiting";
 }
 
-function getAgentActivityStateLabel(state: AgentActivityState): string {
+function getAgentActivityStateLabel(state: AgentActivityState, hasDetectedInteraction: boolean): string {
   switch (state) {
     case "active":
-      return "Detected recent terminal activity";
+      return hasDetectedInteraction ? "Detected recent terminal activity" : "Starting agent session";
     case "idle":
       return "No recent terminal activity detected";
     case "waiting":
