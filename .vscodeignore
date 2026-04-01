@@ -9,3 +9,5 @@ scripts/**
 .eslintrc.cjs
 tsconfig.json
 vitest.config.ts
+.vscode/**
+coverage/**

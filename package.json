@@ -84,6 +84,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
+    "coverage": "vitest run --coverage",
     "check": "npm run typecheck && npm run lint && npm run test",
     "package": "npm run check && npm run build && npx @vscode/vsce package",
     "vscode:prepublish": "npm run check && npm run build"
@@ -93,6 +94,7 @@
     "@types/vscode": "^1.99.0",
     "@typescript-eslint/eslint-plugin": "^8.29.0",
     "@typescript-eslint/parser": "^8.29.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "@vscode/vsce": "^3.3.2",
     "esbuild": "^0.25.2",
     "eslint": "^8.57.1",

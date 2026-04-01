@@ -37,13 +37,24 @@ Run validation:
 npm run check
 ```
 
+Generate a coverage report:
+
+```bash
+npm run coverage
+```
+
 ## Launching in VS Code
 
 1. Open this repository in VS Code.
 2. Run `npm install`.
 3. Start `npm run watch` in a terminal.
-4. Press `F5` to launch an Extension Development Host.
+4. Press `F5` using the `Run Work Terminal extension` launch config.
 5. Open the `Work Terminal` activity bar view.
+
+The repository now includes:
+
+- `.vscode/launch.json` for extension-host and Vitest debugging
+- `.vscode/tasks.json` for build, watch, check, and coverage tasks
 
 ## Planned architecture
 
