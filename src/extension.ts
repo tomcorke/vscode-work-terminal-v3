@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { WorkTerminalViewProvider } from "./workTerminal/WorkTerminalViewProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
-  const provider = new WorkTerminalViewProvider(context.extensionUri);
+  const provider = new WorkTerminalViewProvider(context.extensionUri, context.subscriptions);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -21,4 +21,3 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {}
-
