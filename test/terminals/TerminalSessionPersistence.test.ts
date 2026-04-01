@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type RecentlyClosedTerminalSession,
@@ -133,6 +133,92 @@ describe("TerminalSessionPersistence", () => {
 
     const files = await readdir(join(workspaceRoot, ".work-terminal"));
     expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
+  });
+
+  it("resets to an empty snapshot when backing up a corrupt snapshot races with another read", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, "{ not valid json\n", "utf8");
+
+    Object.assign(persistence as unknown as {
+      backupCorruptSnapshot: (storagePath: string) => Promise<void>;
+    }, {
+      backupCorruptSnapshot: async () => {
+        const error = new Error("already moved") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+    });
+
+    try {
+      await expect(persistence.loadSessions()).resolves.toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already moved or removed"),
+        expect.objectContaining({ code: "ENOENT" }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("logs the underlying corruption cause when resetting a corrupt snapshot", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, "{ not valid json\n", "utf8");
+
+    try {
+      await expect(persistence.loadSessions()).resolves.toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("was corrupt"),
+        expect.any(SyntaxError),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("rethrows unexpected backup failures after logging them", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
+    tempDirectories.push(workspaceRoot);
+
+    const persistence = new TerminalSessionPersistence(workspaceRoot);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const snapshotPath = persistence.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, "{ not valid json\n", "utf8");
+
+    Object.assign(persistence as unknown as {
+      backupCorruptSnapshot: (storagePath: string) => Promise<void>;
+    }, {
+      backupCorruptSnapshot: async () => {
+        const error = new Error("permission denied") as NodeJS.ErrnoException;
+        error.code = "EACCES";
+        throw error;
+      },
+    });
+
+    try {
+      await expect(persistence.loadSessions()).rejects.toMatchObject({ code: "EACCES" });
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Unable to reset the terminal session store safely"),
+        expect.objectContaining({ code: "EACCES" }),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("backs up snapshots with unsupported versions before loading sessions", async () => {

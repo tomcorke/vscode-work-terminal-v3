@@ -137,11 +137,7 @@ export class TerminalSessionPersistence {
       return await this.loadSnapshot();
     } catch (error) {
       if (error instanceof CorruptSnapshotError) {
-        console.warn(
-          `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the terminal session store.`,
-        );
-        await this.backupCorruptSnapshot(error.storagePath);
-        return createEmptyPersistedTerminalSnapshot();
+        return this.recoverFromCorruptSnapshot(error);
       }
 
       if (isMissingFileError(error)) {
@@ -163,11 +159,7 @@ export class TerminalSessionPersistence {
       return await this.loadSnapshot();
     } catch (error) {
       if (error instanceof CorruptSnapshotError) {
-        console.warn(
-          `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the terminal session store.`,
-        );
-        await this.backupCorruptSnapshot(error.storagePath);
-        return createEmptyPersistedTerminalSnapshot();
+        return this.recoverFromCorruptSnapshot(error);
       }
 
       if (!isMissingFileError(error)) {
@@ -194,6 +186,32 @@ export class TerminalSessionPersistence {
   private async backupCorruptSnapshot(storagePath: string): Promise<void> {
     const backupPath = `${storagePath}.corrupt-${Date.now()}`;
     await rename(storagePath, backupPath);
+  }
+
+  private async recoverFromCorruptSnapshot(error: CorruptSnapshotError): Promise<PersistedTerminalSnapshot> {
+    console.warn(
+      `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the terminal session store.`,
+      error.cause,
+    );
+
+    try {
+      await this.backupCorruptSnapshot(error.storagePath);
+    } catch (backupError) {
+      if (isNonFatalSnapshotBackupError(backupError)) {
+        console.warn(
+          `[work-terminal] Unable to back up corrupt snapshot at ${error.storagePath} before reset because it was already moved or removed. Continuing with an empty terminal session store.`,
+          backupError,
+        );
+      } else {
+        console.error(
+          `[work-terminal] Failed to back up corrupt snapshot at ${error.storagePath}. Unable to reset the terminal session store safely.`,
+          backupError,
+        );
+        throw backupError;
+      }
+    }
+
+    return createEmptyPersistedTerminalSnapshot();
   }
 
   private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -333,12 +351,17 @@ function asSessionKind(value: unknown): PersistedTerminalSessionKind | null {
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT",
-  );
+  return getErrorCode(error) === "ENOENT";
+}
+
+function isNonFatalSnapshotBackupError(error: unknown): error is NodeJS.ErrnoException {
+  return getErrorCode(error) === "ENOENT";
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error
+    ? (error as NodeJS.ErrnoException).code
+    : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
