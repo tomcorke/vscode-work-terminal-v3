@@ -9,6 +9,7 @@ export {
 } from "./AgentProfile";
 export {
   buildAgentLaunchPlan,
+  getNormalizedConfiguredCommand,
   getAgentProfileSummaries,
   splitConfiguredCommand,
   type AgentLaunchPlan,

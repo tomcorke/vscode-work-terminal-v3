@@ -4,6 +4,7 @@ import {
   buildAgentLaunchPlan,
   buildWorkItemContextPrompt,
   getAgentProfileById,
+  getNormalizedConfiguredCommand,
   getAgentProfileSummaries,
   type AgentProfileId,
   type AgentProfileSummary,
@@ -107,15 +108,26 @@ export class TerminalSessionStore implements vscode.Disposable {
       };
     }
 
-    const configuredCommand = configuration.get<string>(profile.commandConfigurationKey, profile.defaultCommand) ?? profile.defaultCommand;
+    const configuredCommand = getNormalizedConfiguredCommand(
+      configuration.get<string>(profile.commandConfigurationKey, profile.defaultCommand),
+      profile.defaultCommand,
+    );
     const configuredExtraArgs = configuration.get<string>(profile.extraArgsConfigurationKey, "") ?? "";
     const contextPrompt = buildWorkItemContextPrompt(options.itemTitle, options.itemDescription);
-    const launchPlan = buildAgentLaunchPlan({
-      configuredCommand,
-      configuredExtraArgs,
-      contextPrompt,
-      profile,
-    });
+    let launchPlan;
+    try {
+      launchPlan = buildAgentLaunchPlan({
+        configuredCommand,
+        configuredExtraArgs,
+        contextPrompt,
+        profile,
+      });
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : `Unable to launch ${profile.label}.`,
+        session: null,
+      };
+    }
     const id = crypto.randomUUID();
     const label = `${options.itemTitle} - ${profile.label}`;
     const terminal = vscode.window.createTerminal({
