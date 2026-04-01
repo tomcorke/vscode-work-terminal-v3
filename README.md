@@ -201,7 +201,7 @@ Run `pnpm check` before opening a PR. Run `pnpm package` when you need to verify
 
 ## Contributor guidance
 
-For a repo-specific maintainer and contributor playbook, see [`CLAUDE.md`](./CLAUDE.md).
+For a repo-specific maintainer and contributor playbook, see [`CLAUDE.md`](https://github.com/tomcorke/vscode-work-terminal-v3/blob/main/CLAUDE.md).
 
 ## License
 
