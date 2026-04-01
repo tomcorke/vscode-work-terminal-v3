@@ -328,7 +328,12 @@ function normalizeRecentlyClosedTerminalSession(input: unknown): RecentlyClosedT
 }
 
 function asAgentProfileId(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function asNullableString(value: unknown): string | null {

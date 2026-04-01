@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import {
+  AGENT_PROFILES_CONFIGURATION_KEY,
   getBuiltInAgentProfileById,
   loadAgentProfileCatalog,
   serializeAgentProfiles,
@@ -15,8 +16,6 @@ import {
   renderWorkTerminalHtml,
   type WorkTerminalViewState,
 } from "./renderWorkTerminalHtml";
-
-const AGENT_PROFILES_CONFIGURATION_SECTION = "agentProfiles";
 
 type WorkTerminalWebviewMessage =
   | { readonly type: "ready"; readonly selectedItemId: string | null }
@@ -233,7 +232,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     }
 
     if (action === "reset") {
-      await configuration.update(AGENT_PROFILES_CONFIGURATION_SECTION, undefined, getConfigurationTarget());
+      await configuration.update(AGENT_PROFILES_CONFIGURATION_KEY, undefined, getConfigurationTarget());
       await this.refresh("Reset profile configuration to the built-in defaults");
       void vscode.window.showInformationMessage("Reset Work Terminal profiles to the built-in defaults.");
       return;
@@ -379,7 +378,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   private async saveProfiles(profiles: readonly AgentProfile[], status: string): Promise<void> {
     const configuration = vscode.workspace.getConfiguration("workTerminal");
     await configuration.update(
-      AGENT_PROFILES_CONFIGURATION_SECTION,
+      AGENT_PROFILES_CONFIGURATION_KEY,
       serializeAgentProfiles(profiles),
       getConfigurationTarget(),
     );
