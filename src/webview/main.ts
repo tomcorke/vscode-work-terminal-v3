@@ -70,7 +70,7 @@ let state = persistedState?.viewState ?? window.__WORK_TERMINAL_INITIAL_STATE__ 
 
 render(state);
 persistState();
-vscode.postMessage({ type: "ready" });
+vscode.postMessage({ type: "ready", selectedItemId: state.selectedItemId });
 
 window.addEventListener("message", (event: MessageEvent<IncomingMessage>) => {
   if (event.data.type === "state-updated") {

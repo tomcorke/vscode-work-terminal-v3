@@ -20,6 +20,7 @@ interface StoredTerminalSession {
 
 export class TerminalSessionStore implements vscode.Disposable {
   private readonly closeDisposable: vscode.Disposable;
+  private readonly sessionsChangedEmitter = new vscode.EventEmitter<void>();
   private readonly sessionsById = new Map<string, StoredTerminalSession>();
 
   public constructor() {
@@ -27,9 +28,14 @@ export class TerminalSessionStore implements vscode.Disposable {
       for (const [id, session] of this.sessionsById) {
         if (session.terminal === terminal) {
           this.sessionsById.delete(id);
+          this.sessionsChangedEmitter.fire();
         }
       }
     });
+  }
+
+  public get onDidChangeSessions(): vscode.Event<void> {
+    return this.sessionsChangedEmitter.event;
   }
 
   public createShellSession(itemId: string, itemTitle: string, cwd: string | undefined): TerminalSessionSummary {
@@ -48,6 +54,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     };
 
     this.sessionsById.set(id, { summary, terminal });
+    this.sessionsChangedEmitter.fire();
     terminal.show(true);
 
     return summary;
@@ -79,7 +86,10 @@ export class TerminalSessionStore implements vscode.Disposable {
 
   public dispose(): void {
     this.closeDisposable.dispose();
+    for (const session of this.sessionsById.values()) {
+      session.terminal.dispose();
+    }
+    this.sessionsChangedEmitter.dispose();
     this.sessionsById.clear();
   }
 }
-

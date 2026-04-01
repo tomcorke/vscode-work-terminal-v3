@@ -9,7 +9,7 @@ import {
 import type { WorkItemStore } from "../workItems";
 
 type WorkTerminalWebviewMessage =
-  | { readonly type: "ready" }
+  | { readonly type: "ready"; readonly selectedItemId: string | null }
   | { readonly type: "create-work-item-requested" }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
   | {
@@ -32,7 +32,13 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     private readonly disposables: vscode.Disposable[],
     private readonly store: WorkItemStore,
     private readonly terminalStore: TerminalSessionStore,
-  ) {}
+  ) {
+    this.disposables.push(
+      this.terminalStore.onDidChangeSessions(() => {
+        void this.refresh("Updated terminal session state");
+      }),
+    );
+  }
 
   public async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this.view = webviewView;
@@ -57,6 +63,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(
       async (message: WorkTerminalWebviewMessage) => {
         if (message.type === "ready") {
+          this.selectedItemId = message.selectedItemId;
           await this.postState("Work Terminal view connected");
           return;
         }
