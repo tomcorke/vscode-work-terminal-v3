@@ -74,4 +74,19 @@ describe("WorkItemStore", () => {
     expect(created?.title).toBe("Recovered after corruption");
     expect(files.some((file) => file.startsWith("work-items.v1.json.corrupt-"))).toBe(true);
   });
+
+  it("does not let a first read overwrite a concurrent create", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+
+    await Promise.all([
+      store.getSummary(),
+      store.createWorkItem({ title: "Created during first read" }),
+    ]);
+
+    const summary = await store.getSummary();
+    expect(summary.totalCount).toBe(1);
+  });
 });

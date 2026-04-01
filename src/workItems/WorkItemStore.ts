@@ -73,7 +73,7 @@ export class WorkItemStore {
     }
 
     return this.withWriteLock(async () => {
-      const snapshot = await this.ensureSnapshot();
+      const snapshot = await this.loadSnapshotForWrite();
       const item = createWorkItem(input);
       const nextSnapshot: PersistedWorkItemSnapshot = {
         ...snapshot,
@@ -94,7 +94,7 @@ export class WorkItemStore {
   }
 
   public async getSummary(): Promise<WorkItemStoreSummary> {
-    const snapshot = await this.ensureSnapshot();
+    const snapshot = await this.loadSnapshotForRead();
     const items = Object.values(snapshot.items);
     const latest = [...items].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 
@@ -143,7 +143,19 @@ export class WorkItemStore {
     }
   }
 
-  private async ensureSnapshot(): Promise<PersistedWorkItemSnapshot> {
+  private async loadSnapshotForRead(): Promise<PersistedWorkItemSnapshot> {
+    try {
+      return await this.loadSnapshot();
+    } catch (error) {
+      if (isMissingFileError(error) || error instanceof CorruptSnapshotError) {
+        return createEmptyPersistedWorkItemSnapshot();
+      }
+
+      throw error;
+    }
+  }
+
+  private async loadSnapshotForWrite(): Promise<PersistedWorkItemSnapshot> {
     const storagePath = this.getStoragePath();
 
     if (!storagePath) {
@@ -158,18 +170,14 @@ export class WorkItemStore {
           `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the store.`,
         );
         await this.backupCorruptSnapshot(error.storagePath);
-        const emptySnapshot = createEmptyPersistedWorkItemSnapshot();
-        await this.saveSnapshot(emptySnapshot);
-        return emptySnapshot;
+        return createEmptyPersistedWorkItemSnapshot();
       }
 
       if (!isMissingFileError(error)) {
         throw error;
       }
 
-      const emptySnapshot = createEmptyPersistedWorkItemSnapshot();
-      await this.saveSnapshot(emptySnapshot);
-      return emptySnapshot;
+      return createEmptyPersistedWorkItemSnapshot();
     }
   }
 
