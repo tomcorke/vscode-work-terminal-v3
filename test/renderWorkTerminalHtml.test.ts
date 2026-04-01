@@ -31,6 +31,7 @@ describe("renderWorkTerminalHtml", () => {
           { count: 0, id: "todo", label: "To Do" },
         ],
         latestWorkItemTitle: "Demo task",
+        selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
         storagePath: "/tmp/workspace/.work-terminal/work-items.v1.json",
         totalWorkItems: 1,

@@ -10,11 +10,14 @@ import type { WorkItemStore } from "../workItems";
 type WorkTerminalWebviewMessage =
   | { readonly type: "ready" }
   | { readonly type: "create-work-item-requested" }
+  | { readonly type: "work-item-selected"; readonly itemId: string | null }
   | { readonly type: "refresh-requested" };
 
 export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "workTerminal.view";
 
+  private lastStatus = "Scaffold ready";
+  private selectedItemId: string | null = null;
   private view: vscode.WebviewView | undefined;
 
   public constructor(
@@ -55,6 +58,12 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
           return;
         }
 
+        if (message.type === "work-item-selected") {
+          this.selectedItemId = message.itemId;
+          await this.postState(this.lastStatus);
+          return;
+        }
+
         if (message.type === "create-work-item-requested") {
           await this.createWorkItemFromPrompt();
         }
@@ -69,6 +78,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async refresh(status = "Refreshed work item state from extension host"): Promise<void> {
+    this.lastStatus = status;
     await this.postState(status);
   }
 
@@ -111,11 +121,17 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
   private async createViewState(status: string): Promise<WorkTerminalViewState> {
     const summary = await this.store.getSummary();
+    const allItems = summary.boardColumns.flatMap((column) => column.items);
+    const resolvedSelectedItemId = allItems.some((item) => item.id === this.selectedItemId)
+      ? this.selectedItemId
+      : allItems[0]?.id ?? null;
+    this.selectedItemId = resolvedSelectedItemId;
 
     return {
       boardColumns: summary.boardColumns,
       columnSummaries: summary.columnSummaries,
       latestWorkItemTitle: summary.latestWorkItemTitle,
+      selectedItemId: resolvedSelectedItemId,
       status,
       storagePath: summary.storagePath,
       totalWorkItems: summary.totalCount,

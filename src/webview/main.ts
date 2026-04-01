@@ -20,6 +20,7 @@ interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
+  readonly selectedItemId: string | null;
   readonly status: string;
   readonly storagePath: string | null;
   readonly totalWorkItems: number;
@@ -38,6 +39,11 @@ interface VsCodeApi<TState> {
   setState(state: TState): void;
 }
 
+interface PersistedWebviewState {
+  readonly selectedItemId: string | null;
+  readonly viewState: WorkTerminalViewState;
+}
+
 declare const window: Window &
   typeof globalThis & {
     __WORK_TERMINAL_INITIAL_STATE__?: WorkTerminalViewState;
@@ -45,7 +51,7 @@ declare const window: Window &
 
 declare function acquireVsCodeApi<TState>(): VsCodeApi<TState>;
 
-const vscode = acquireVsCodeApi<WorkTerminalViewState>();
+const vscode = acquireVsCodeApi<PersistedWebviewState>();
 const root = document.querySelector<HTMLDivElement>("#work-terminal-root");
 
 if (!root) {
@@ -53,12 +59,12 @@ if (!root) {
 }
 
 const rootElement = root;
+const persistedState = vscode.getState();
 
-let state = vscode.getState() ?? window.__WORK_TERMINAL_INITIAL_STATE__ ?? createFallbackState();
-let selectedItemId: string | null = state.boardColumns.flatMap((column) => column.items)[0]?.id ?? null;
+let state = persistedState?.viewState ?? window.__WORK_TERMINAL_INITIAL_STATE__ ?? createFallbackState();
 
 render(state);
-vscode.setState(state);
+persistState();
 vscode.postMessage({ type: "ready" });
 
 window.addEventListener("message", (event: MessageEvent<IncomingMessage>) => {
@@ -90,23 +96,23 @@ root.addEventListener("click", (event: MouseEvent) => {
 
   const card = target.closest<HTMLElement>("[data-work-item-id]");
   if (card) {
-    selectedItemId = card.dataset.workItemId ?? null;
-    render(state);
+    const itemId = card.dataset.workItemId ?? null;
+    applyState({ ...state, selectedItemId: itemId });
+    vscode.postMessage({ type: "work-item-selected", itemId });
   }
 });
 
 function applyState(nextState: WorkTerminalViewState): void {
   render(nextState);
-  vscode.setState(nextState);
+  persistState();
 }
 
 function render(nextState: WorkTerminalViewState): void {
   state = nextState;
   const selectedItem =
-    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === selectedItemId) ??
+    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === nextState.selectedItemId) ??
     nextState.boardColumns.flatMap((column) => column.items)[0] ??
     null;
-  selectedItemId = selectedItem?.id ?? null;
   rootElement.innerHTML = `
     <div class="app-shell">
       <header class="topbar">
@@ -142,7 +148,7 @@ function render(nextState: WorkTerminalViewState): void {
                               .map(
                                 (item) => `
                                   <button
-                                    class="work-item-card${item.id === selectedItemId ? " is-selected" : ""}"
+                                    class="work-item-card${item.id === nextState.selectedItemId ? " is-selected" : ""}"
                                     type="button"
                                     data-work-item-id="${escapeHtml(item.id)}"
                                   >
@@ -219,12 +225,20 @@ function createFallbackState(): WorkTerminalViewState {
     boardColumns: [],
     columnSummaries: [],
     latestWorkItemTitle: null,
+    selectedItemId: null,
     status: "Scaffold ready",
     storagePath: null,
     totalWorkItems: 0,
     workspaceName: "No workspace",
     lastUpdatedLabel: "Not yet updated",
   };
+}
+
+function persistState(): void {
+  vscode.setState({
+    selectedItemId: state.selectedItemId,
+    viewState: state,
+  });
 }
 
 function escapeHtml(value: string): string {

@@ -18,6 +18,7 @@ export interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
+  readonly selectedItemId: string | null;
   readonly status: string;
   readonly storagePath: string | null;
   readonly totalWorkItems: number;
