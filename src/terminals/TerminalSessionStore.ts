@@ -37,6 +37,7 @@ interface StoredTerminalSession {
 
 export class TerminalSessionStore implements vscode.Disposable {
   private readonly closeDisposable: vscode.Disposable;
+  private readonly pendingInitialPromptTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly sessionsChangedEmitter = new vscode.EventEmitter<void>();
   private readonly sessionsById = new Map<string, StoredTerminalSession>();
 
@@ -44,6 +45,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     this.closeDisposable = vscode.window.onDidCloseTerminal((terminal) => {
       for (const [id, session] of this.sessionsById) {
         if (session.terminal === terminal) {
+          this.clearPendingInitialPrompt(id);
           this.sessionsById.delete(id);
           this.sessionsChangedEmitter.fire();
         }
@@ -158,9 +160,17 @@ export class TerminalSessionStore implements vscode.Disposable {
 
     const initialPrompt = launchPlan.initialPrompt;
     if (initialPrompt) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        this.pendingInitialPromptTimers.delete(id);
+
+        const activeSession = this.sessionsById.get(id);
+        if (!activeSession || activeSession.terminal !== terminal) {
+          return;
+        }
+
         terminal.sendText(initialPrompt, true);
       }, 200);
+      this.pendingInitialPromptTimers.set(id, timer);
     }
 
     return {
@@ -196,10 +206,24 @@ export class TerminalSessionStore implements vscode.Disposable {
 
   public dispose(): void {
     this.closeDisposable.dispose();
+    for (const timer of this.pendingInitialPromptTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingInitialPromptTimers.clear();
     for (const session of this.sessionsById.values()) {
       session.terminal.dispose();
     }
     this.sessionsChangedEmitter.dispose();
     this.sessionsById.clear();
+  }
+
+  private clearPendingInitialPrompt(id: string): void {
+    const timer = this.pendingInitialPromptTimers.get(id);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    this.pendingInitialPromptTimers.delete(id);
   }
 }
