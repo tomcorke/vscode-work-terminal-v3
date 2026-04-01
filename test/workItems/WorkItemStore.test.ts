@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,5 +39,54 @@ describe("WorkItemStore", () => {
 
     const snapshotContent = await readFile(snapshotPath!, "utf8");
     expect(snapshotContent).toContain("Investigate flaky persistence test");
+  });
+
+  it("serializes concurrent work item creation", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+
+    await Promise.all([
+      store.createWorkItem({ title: "First concurrent item" }),
+      store.createWorkItem({ title: "Second concurrent item" }),
+    ]);
+
+    const summary = await store.getSummary();
+    expect(summary.totalCount).toBe(2);
+  });
+
+  it("recovers from a corrupt snapshot by backing it up", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const snapshotPath = store.getStoragePath();
+
+    await mkdir(dirname(snapshotPath!), { recursive: true });
+    await writeFile(snapshotPath!, "{ not valid json\n", "utf8");
+
+    const created = await store.createWorkItem({
+      title: "Recovered after corruption",
+    });
+    const files = await readdir(join(workspaceRoot, ".work-terminal"));
+
+    expect(created?.title).toBe("Recovered after corruption");
+    expect(files.some((file) => file.startsWith("work-items.v1.json.corrupt-"))).toBe(true);
+  });
+
+  it("does not let a first read overwrite a concurrent create", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+
+    await Promise.all([
+      store.getSummary(),
+      store.createWorkItem({ title: "Created during first read" }),
+    ]);
+
+    const summary = await store.getSummary();
+    expect(summary.totalCount).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
@@ -53,6 +53,8 @@ export interface WorkItemStoreSummary {
 }
 
 export class WorkItemStore {
+  private writeQueue: Promise<void> = Promise.resolve();
+
   public constructor(private readonly workspaceRootPath: string | null) {}
 
   public getStoragePath(): string | null {
@@ -64,33 +66,35 @@ export class WorkItemStore {
   }
 
   public async createWorkItem(input: CreateWorkItemInput): Promise<WorkItem | null> {
-    const snapshot = await this.ensureSnapshot();
     const storagePath = this.getStoragePath();
 
     if (!storagePath) {
       return null;
     }
 
-    const item = createWorkItem(input);
-    const nextSnapshot: PersistedWorkItemSnapshot = {
-      ...snapshot,
-      items: {
-        ...snapshot.items,
-        [item.id]: item,
-      },
-      itemOrderByColumn: {
-        ...snapshot.itemOrderByColumn,
-        [item.column]: [item.id, ...snapshot.itemOrderByColumn[item.column].filter((id) => id !== item.id)],
-      },
-    };
+    return this.withWriteLock(async () => {
+      const snapshot = await this.loadSnapshotForWrite();
+      const item = createWorkItem(input);
+      const nextSnapshot: PersistedWorkItemSnapshot = {
+        ...snapshot,
+        items: {
+          ...snapshot.items,
+          [item.id]: item,
+        },
+        itemOrderByColumn: {
+          ...snapshot.itemOrderByColumn,
+          [item.column]: [item.id, ...snapshot.itemOrderByColumn[item.column].filter((id) => id !== item.id)],
+        },
+      };
 
-    await this.saveSnapshot(nextSnapshot);
+      await this.saveSnapshot(nextSnapshot);
 
-    return item;
+      return item;
+    });
   }
 
   public async getSummary(): Promise<WorkItemStoreSummary> {
-    const snapshot = await this.ensureSnapshot();
+    const snapshot = await this.loadSnapshotForRead();
     const items = Object.values(snapshot.items);
     const latest = [...items].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 
@@ -130,11 +134,28 @@ export class WorkItemStore {
     }
 
     const content = await readFile(storagePath, "utf8");
-    const parsed = JSON.parse(content) as unknown;
-    return normalizePersistedWorkItemSnapshot(parsed);
+
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      return normalizePersistedWorkItemSnapshot(parsed);
+    } catch (error) {
+      throw new CorruptSnapshotError(storagePath, error);
+    }
   }
 
-  private async ensureSnapshot(): Promise<PersistedWorkItemSnapshot> {
+  private async loadSnapshotForRead(): Promise<PersistedWorkItemSnapshot> {
+    try {
+      return await this.loadSnapshot();
+    } catch (error) {
+      if (isMissingFileError(error) || error instanceof CorruptSnapshotError) {
+        return createEmptyPersistedWorkItemSnapshot();
+      }
+
+      throw error;
+    }
+  }
+
+  private async loadSnapshotForWrite(): Promise<PersistedWorkItemSnapshot> {
     const storagePath = this.getStoragePath();
 
     if (!storagePath) {
@@ -144,13 +165,19 @@ export class WorkItemStore {
     try {
       return await this.loadSnapshot();
     } catch (error) {
+      if (error instanceof CorruptSnapshotError) {
+        console.warn(
+          `[work-terminal] Snapshot at ${error.storagePath} was corrupt. Backing it up and resetting the store.`,
+        );
+        await this.backupCorruptSnapshot(error.storagePath);
+        return createEmptyPersistedWorkItemSnapshot();
+      }
+
       if (!isMissingFileError(error)) {
         throw error;
       }
 
-      const emptySnapshot = createEmptyPersistedWorkItemSnapshot();
-      await this.saveSnapshot(emptySnapshot);
-      return emptySnapshot;
+      return createEmptyPersistedWorkItemSnapshot();
     }
   }
 
@@ -162,7 +189,40 @@ export class WorkItemStore {
     }
 
     await mkdir(dirname(storagePath), { recursive: true });
-    await writeFile(storagePath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    const temporaryPath = `${storagePath}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(temporaryPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    await rename(temporaryPath, storagePath);
+  }
+
+  private async backupCorruptSnapshot(storagePath: string): Promise<void> {
+    const backupPath = `${storagePath}.corrupt-${Date.now()}`;
+    await rename(storagePath, backupPath);
+  }
+
+  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.writeQueue;
+    let release!: () => void;
+    this.writeQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+}
+
+class CorruptSnapshotError extends Error {
+  public constructor(
+    public readonly storagePath: string,
+    cause: unknown,
+  ) {
+    super(`Work item snapshot is corrupt: ${storagePath}`, { cause });
+    this.name = "CorruptSnapshotError";
   }
 }
 
