@@ -22,6 +22,7 @@ export interface WorkTerminalViewState {
     }>;
     readonly label: string;
   }>;
+  readonly collapsedColumns: Record<string, boolean>;
   readonly columnSummaries: ReadonlyArray<{
     readonly count: number;
     readonly id: string;

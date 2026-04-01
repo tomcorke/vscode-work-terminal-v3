@@ -6,9 +6,9 @@ import {
   createWorkItem,
   normalizePersistedWorkItemSnapshot,
   WORK_ITEM_COLUMNS,
+  type WorkItem,
   type CreateWorkItemInput,
   type PersistedWorkItemSnapshot,
-  type WorkItem,
   type WorkItemColumn,
 } from "./index";
 
@@ -46,6 +46,7 @@ export interface WorkItemBoardColumn {
 
 export interface WorkItemStoreSummary {
   readonly boardColumns: readonly WorkItemBoardColumn[];
+  readonly collapsedColumns: Record<WorkItemColumn, boolean>;
   readonly columnSummaries: readonly WorkItemColumnSummary[];
   readonly latestWorkItemTitle: string | null;
   readonly storagePath: string | null;
@@ -115,6 +116,7 @@ export class WorkItemStore {
           })),
         label: COLUMN_LABELS[column],
       })),
+      collapsedColumns: { ...snapshot.collapsedColumns },
       columnSummaries: WORK_ITEM_COLUMNS.map((column) => ({
         id: column,
         label: COLUMN_LABELS[column],
@@ -124,6 +126,73 @@ export class WorkItemStore {
       storagePath: this.getStoragePath(),
       totalCount: items.length,
     };
+  }
+
+  public async reorderItems(
+    itemId: string,
+    fromColumn: WorkItemColumn,
+    toColumn: WorkItemColumn,
+    targetIndex: number,
+  ): Promise<boolean> {
+    const storagePath = this.getStoragePath();
+    if (!storagePath) {
+      return false;
+    }
+
+    return this.withWriteLock(async () => {
+      const snapshot = await this.loadSnapshotForWrite();
+      const item = snapshot.items[itemId];
+      if (!item || item.column !== fromColumn) {
+        return false;
+      }
+
+      const nextState = fromColumn === toColumn ? item.state : getStateForColumn(toColumn);
+      const normalizedIndex = Math.max(0, Math.min(targetIndex, snapshot.itemOrderByColumn[toColumn].length));
+      const nextItemOrderByColumn = Object.fromEntries(
+        WORK_ITEM_COLUMNS.map((column) => [column, snapshot.itemOrderByColumn[column].filter((id) => id !== itemId)]),
+      ) as Record<WorkItemColumn, string[]>;
+
+      nextItemOrderByColumn[toColumn].splice(normalizedIndex, 0, itemId);
+
+      const timestamp = new Date().toISOString();
+      const nextItem: WorkItem = {
+        ...item,
+        column: toColumn,
+        state: nextState,
+        updatedAt: timestamp,
+        completedAt: toColumn === "done" ? item.completedAt ?? timestamp : null,
+      };
+
+      await this.saveSnapshot({
+        ...snapshot,
+        items: {
+          ...snapshot.items,
+          [itemId]: nextItem,
+        },
+        itemOrderByColumn: nextItemOrderByColumn,
+      });
+
+      return true;
+    });
+  }
+
+  public async toggleColumnCollapsed(column: WorkItemColumn): Promise<boolean> {
+    const storagePath = this.getStoragePath();
+    if (!storagePath) {
+      return false;
+    }
+
+    return this.withWriteLock(async () => {
+      const snapshot = await this.loadSnapshotForWrite();
+      await this.saveSnapshot({
+        ...snapshot,
+        collapsedColumns: {
+          ...snapshot.collapsedColumns,
+          [column]: !snapshot.collapsedColumns[column],
+        },
+      });
+      return true;
+    });
   }
 
   public async loadSnapshot(): Promise<PersistedWorkItemSnapshot> {
@@ -213,6 +282,19 @@ export class WorkItemStore {
     } finally {
       release();
     }
+  }
+}
+
+function getStateForColumn(column: WorkItemColumn): WorkItem["state"] {
+  switch (column) {
+    case "priority":
+      return "priority";
+    case "todo":
+      return "todo";
+    case "active":
+      return "active";
+    case "done":
+      return "done";
   }
 }
 

@@ -38,6 +38,12 @@ describe("renderWorkTerminalHtml", () => {
             label: "Active",
           },
         ],
+        collapsedColumns: {
+          active: false,
+          done: false,
+          priority: false,
+          todo: false,
+        },
         columnSummaries: [
           { count: 1, id: "active", label: "Active" },
           { count: 0, id: "todo", label: "To Do" },
@@ -53,7 +59,7 @@ describe("renderWorkTerminalHtml", () => {
         terminalSessions: [
           {
             activityState: "active",
-            activityStateLabel: "Detected recent terminal activity",
+            activityStateLabel: "Recent terminal signal observed",
             command: "claude",
             id: "223e4567-e89b-12d3-a456-426614174000",
             itemDescription: "Test selection details",
@@ -83,6 +89,7 @@ describe("renderWorkTerminalHtml", () => {
     expect(html).toContain("nonce=\"test-nonce\"");
     expect(html).toContain("https://example.invalid/dist/webview/main.css");
     expect(html).toContain("https://example.invalid/dist/webview/main.js");
+    expect(html).toContain("collapsedColumns");
   });
 
   it("escapes line separator characters in the bootstrapped state", () => {
@@ -97,20 +104,26 @@ describe("renderWorkTerminalHtml", () => {
             id: "active",
             items: [
               {
-                description: "Line\u2028separator and paragraph\u2029separator",
+                description: "Line separator and paragraph separator",
                 id: "123e4567-e89b-12d3-a456-426614174000",
                 isBlocked: false,
                 priorityLevel: "medium",
                 sourceKind: "manual",
-                title: "Demo\u2028task",
+                title: "Demo task",
                 updatedAt: "2026-04-01T10:00:00.000Z",
               },
             ],
             label: "Active",
           },
         ],
+        collapsedColumns: {
+          active: false,
+          done: false,
+          priority: false,
+          todo: false,
+        },
         columnSummaries: [{ count: 1, id: "active", label: "Active" }],
-        latestWorkItemTitle: "Demo\u2029task",
+        latestWorkItemTitle: "Demo task",
         recentlyClosedSessions: [],
         selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
@@ -126,7 +139,7 @@ describe("renderWorkTerminalHtml", () => {
 
     expect(html).toContain("\\u2028");
     expect(html).toContain("\\u2029");
-    expect(html).not.toContain("Demo\u2028task");
-    expect(html).not.toContain("paragraph\u2029separator");
+    expect(html).not.toContain("Demo task");
+    expect(html).not.toContain("paragraph separator");
   });
 });

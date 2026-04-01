@@ -50,6 +50,7 @@ export interface CreateWorkItemInput {
 
 export interface PersistedWorkItemSnapshot {
   readonly version: typeof WORK_ITEM_SNAPSHOT_VERSION;
+  readonly collapsedColumns: Record<WorkItemColumn, boolean>;
   readonly items: Record<WorkItemId, WorkItem>;
   readonly columnOrder: WorkItemColumn[];
   // These arrays are the canonical ordering source for the board.

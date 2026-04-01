@@ -9,6 +9,8 @@ This repository is past the empty scaffold stage and already ships a usable vert
 - `Work Terminal` activity bar container with a `Board` webview
 - workspace-local work item persistence in `.work-terminal/work-items.v1.json`
 - create-work-item flow from the extension host
+- board drag-and-drop reordering with persisted cross-column moves
+- persisted column collapse state plus local text filtering in the webview
 - per-item shell terminals
 - Claude and GitHub Copilot CLI launch profiles, with optional work-item context prompts
 - workspace-local terminal session persistence in `.work-terminal/terminal-sessions.v1.json`
@@ -24,6 +26,8 @@ It does not yet match the full Obsidian plugin feature set. The current implemen
 
 - Four visible board columns: `Priority`, `To Do`, `Active`, and `Done`
 - Workspace-local snapshot storage with atomic write-then-rename persistence
+- Drag-and-drop item movement within and across columns, backed by persisted ordering
+- Persisted per-column collapse state and local text filtering in the webview
 - Column counts, latest item summary, and selected-item detail panel in the webview
 - Quick create flow using `Work Terminal: Create Work Item`
 - Work item schema already supports richer metadata such as source info, priority score, blocker state, deadlines, and terminal states that map into the visible board

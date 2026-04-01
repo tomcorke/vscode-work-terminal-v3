@@ -24,6 +24,7 @@ interface WorkTerminalViewState {
     }>;
     readonly label: string;
   }>;
+  readonly collapsedColumns: Record<string, boolean>;
   readonly columnSummaries: ReadonlyArray<{
     readonly count: number;
     readonly id: string;
@@ -68,6 +69,8 @@ interface WorkTerminalViewState {
   readonly lastUpdatedLabel: string;
 }
 
+type BoardColumnId = "priority" | "todo" | "active" | "done";
+
 type IncomingMessage = { readonly type: "state-updated"; readonly payload: WorkTerminalViewState };
 
 interface VsCodeApi<TState> {
@@ -77,8 +80,20 @@ interface VsCodeApi<TState> {
 }
 
 interface PersistedWebviewState {
+  readonly filterQuery: string;
   readonly selectedItemId: string | null;
   readonly viewState: WorkTerminalViewState;
+}
+
+interface DragState {
+  itemId: string;
+  fromColumn: BoardColumnId;
+}
+
+interface FilterInputSnapshot {
+  readonly selectionEnd: number | null;
+  readonly selectionStart: number | null;
+  readonly wasFocused: boolean;
 }
 
 declare const window: Window &
@@ -98,6 +113,8 @@ if (!root) {
 const rootElement = root;
 const persistedState = vscode.getState();
 
+let dragState: DragState | null = null;
+let filterQuery = persistedState?.filterQuery ?? "";
 let state = persistedState?.viewState ?? window.__WORK_TERMINAL_INITIAL_STATE__ ?? createFallbackState();
 
 render(state);
@@ -131,8 +148,16 @@ root.addEventListener("click", (event: MouseEvent) => {
     return;
   }
 
+  if (target.dataset.action === "toggle-column-collapse") {
+    const columnId = target.dataset.columnId;
+    if (isBoardColumnId(columnId)) {
+      vscode.postMessage({ type: "toggle-column-collapse-requested", columnId });
+    }
+    return;
+  }
+
   if (target.dataset.action === "launch-shell") {
-    const selectedItem = getSelectedItem(state);
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
     if (!selectedItem) {
       return;
     }
@@ -147,7 +172,7 @@ root.addEventListener("click", (event: MouseEvent) => {
   }
 
   if (target.dataset.action === "launch-agent") {
-    const selectedItem = getSelectedItem(state);
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
     const profileId = target.dataset.profileId;
     if (!selectedItem || !profileId) {
       return;
@@ -187,20 +212,126 @@ root.addEventListener("click", (event: MouseEvent) => {
   }
 });
 
+root.addEventListener("input", (event: Event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.dataset.action !== "filter-items") {
+    return;
+  }
+
+  filterQuery = target.value;
+  render(state);
+  persistState();
+});
+
+root.addEventListener("dragstart", (event: DragEvent) => {
+  if (filterQuery.trim().length > 0) {
+    event.preventDefault();
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const card = target.closest<HTMLElement>("[data-work-item-id]");
+  const columnId = card?.closest<HTMLElement>("[data-column-id]")?.dataset.columnId;
+  const itemId = card?.dataset.workItemId;
+
+  if (!card || !itemId || !isBoardColumnId(columnId)) {
+    return;
+  }
+
+  dragState = { itemId, fromColumn: columnId };
+  card.classList.add("is-dragging");
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", itemId);
+  }
+});
+
+root.addEventListener("dragend", () => {
+  clearDropTargets();
+  dragState = null;
+  document.querySelectorAll(".work-item-card.is-dragging").forEach((element) => {
+    element.classList.remove("is-dragging");
+  });
+});
+
+root.addEventListener("dragover", (event: DragEvent) => {
+  if (!dragState || filterQuery.trim().length > 0) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const columnItems = target.closest<HTMLElement>(".board-column-items[data-column-id]");
+  if (!columnItems) {
+    return;
+  }
+
+  event.preventDefault();
+  clearDropTargets();
+  columnItems.classList.add("is-drop-target");
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+});
+
+root.addEventListener("drop", (event: DragEvent) => {
+  if (!dragState || filterQuery.trim().length > 0) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const columnItems = target.closest<HTMLElement>(".board-column-items[data-column-id]");
+  const toColumn = columnItems?.dataset.columnId;
+  if (!columnItems || !isBoardColumnId(toColumn)) {
+    return;
+  }
+
+  event.preventDefault();
+  const targetIndex = getDropIndex(event.clientY, columnItems, dragState.itemId);
+  vscode.postMessage({
+    type: "reorder-item-requested",
+    fromColumn: dragState.fromColumn,
+    itemId: dragState.itemId,
+    targetIndex,
+    toColumn,
+  });
+  clearDropTargets();
+});
+
 function applyState(nextState: WorkTerminalViewState): void {
+  state = nextState;
   render(nextState);
   persistState();
 }
 
 function render(nextState: WorkTerminalViewState): void {
   state = nextState;
-  const selectedItem = getSelectedItem(nextState);
+  const filterInputSnapshot = captureFilterInputSnapshot();
+  const visibleBoardColumns = getVisibleBoardColumns(nextState, filterQuery);
+  const visibleItems = visibleBoardColumns.flatMap((column) => column.items);
+  const selectedItem = getActionableSelectedItem(nextState, filterQuery);
+  const selectionHiddenByFilter =
+    filterQuery.trim().length > 0 &&
+    nextState.selectedItemId !== null &&
+    !visibleItems.some((item) => item.id === nextState.selectedItemId);
   const selectedItemSessions = selectedItem
     ? nextState.terminalSessions.filter((session) => session.itemId === selectedItem.id)
     : [];
   const selectedItemRecentlyClosedSessions = selectedItem
     ? nextState.recentlyClosedSessions.filter((session) => session.itemId === selectedItem.id)
     : [];
+  const dragEnabled = filterQuery.trim().length === 0;
   rootElement.innerHTML = `
     <div class="app-shell">
       <header class="topbar">
@@ -209,6 +340,13 @@ function render(nextState: WorkTerminalViewState): void {
           <h1>VS Code port bootstrap</h1>
         </div>
         <div class="toolbar">
+          <input
+            class="filter-input"
+            type="search"
+            value="${escapeHtml(filterQuery)}"
+            placeholder="Filter work items"
+            data-action="filter-items"
+          />
           <button class="ghost-button" type="button" data-action="create">Create work item</button>
           <button class="ghost-button" type="button" data-action="refresh">Refresh view</button>
         </div>
@@ -220,41 +358,63 @@ function render(nextState: WorkTerminalViewState): void {
             <h2>Board area</h2>
             <span class="pill">${nextState.totalWorkItems} persisted item${nextState.totalWorkItems === 1 ? "" : "s"}</span>
           </div>
+          ${
+            filterQuery.trim().length > 0
+              ? `<p class="board-helper">Filtering by "${escapeHtml(filterQuery)}". Drag and drop is temporarily disabled while filtering.</p>`
+              : `<p class="board-helper">Drag cards between columns to reorder or update their board state.</p>`
+          }
           <div class="board-grid">
-            ${nextState.boardColumns
-              .map(
-                (column) => `
-                  <section class="board-column">
+            ${visibleBoardColumns
+              .map((column) => {
+                const summaryCount = nextState.columnSummaries.find((summary) => summary.id === column.id)?.count ?? column.items.length;
+                const isCollapsed = Boolean(nextState.collapsedColumns[column.id]);
+                return `
+                  <section class="board-column${isCollapsed ? " is-collapsed" : ""}" data-column-id="${escapeHtml(column.id)}">
                     <header class="board-column-header">
-                      <h3>${escapeHtml(column.label)}</h3>
-                      <span class="pill">${column.items.length}</span>
+                      <div class="board-column-heading">
+                        <h3>${escapeHtml(column.label)}</h3>
+                        <span class="pill">${column.items.length}${filterQuery.trim().length > 0 ? ` / ${summaryCount}` : ""}</span>
+                      </div>
+                      <button
+                        class="column-toggle"
+                        type="button"
+                        data-action="toggle-column-collapse"
+                        data-column-id="${escapeHtml(column.id)}"
+                        aria-label="${isCollapsed ? "Expand" : "Collapse"} ${escapeHtml(column.label)} column"
+                        title="${isCollapsed ? "Expand" : "Collapse"} column"
+                      >
+                        ${isCollapsed ? "Show" : "Hide"}
+                      </button>
                     </header>
-                    <div class="board-column-items">
+                    <div class="board-column-items${dragEnabled ? " is-drag-enabled" : ""}" data-column-id="${escapeHtml(column.id)}">
                       ${
-                        column.items.length > 0
-                          ? column.items
-                              .map(
-                                (item) => `
-                                  <button
-                                    class="work-item-card${item.id === nextState.selectedItemId ? " is-selected" : ""}"
-                                    type="button"
-                                    data-work-item-id="${escapeHtml(item.id)}"
-                                  >
-                                    <span class="work-item-card-title">${escapeHtml(item.title)}</span>
-                                    <span class="work-item-card-meta">
-                                      ${escapeHtml(item.priorityLevel)} priority · ${escapeHtml(item.sourceKind)}
-                                      ${item.isBlocked ? " · blocked" : ""}
-                                    </span>
-                                  </button>
-                                `,
-                              )
-                              .join("")
-                          : '<p class="empty-column">No items in this column yet.</p>'
+                        isCollapsed
+                          ? '<p class="empty-column">Column collapsed.</p>'
+                          : column.items.length > 0
+                            ? column.items
+                                .map(
+                                  (item) => `
+                                    <button
+                                      class="work-item-card${item.id === nextState.selectedItemId ? " is-selected" : ""}"
+                                      type="button"
+                                      data-work-item-id="${escapeHtml(item.id)}"
+                                      ${dragEnabled ? 'draggable="true"' : ""}
+                                    >
+                                      <span class="work-item-card-title">${escapeHtml(item.title)}</span>
+                                      <span class="work-item-card-meta">
+                                        ${escapeHtml(item.priorityLevel)} priority · ${escapeHtml(item.sourceKind)}
+                                        ${item.isBlocked ? " · blocked" : ""}
+                                      </span>
+                                    </button>
+                                  `,
+                                )
+                                .join("")
+                            : `<p class="empty-column">${filterQuery.trim().length > 0 ? "No matching items in this column." : "No items in this column yet."}</p>`
                       }
                     </div>
                   </section>
-                `,
-              )
+                `;
+              })
               .join("")}
           </div>
           <div class="placeholder-stack">
@@ -276,9 +436,15 @@ function render(nextState: WorkTerminalViewState): void {
             </article>
             <article class="card">
               <h3>Selected item</h3>
-              <p>${escapeHtml(selectedItem?.title ?? "No work items created yet.")}</p>
               <p>${escapeHtml(
-                selectedItem?.description ?? "Select a work item to launch shell or agent sessions.",
+                selectionHiddenByFilter
+                  ? "Current selection is hidden by the active filter."
+                  : (selectedItem?.title ?? "No work items created yet."),
+              )}</p>
+              <p>${escapeHtml(
+                selectionHiddenByFilter
+                  ? "Clear the filter or select a visible work item to launch sessions."
+                  : (selectedItem?.description ?? "Select a work item to launch shell or agent sessions."),
               )}</p>
               ${
                 selectedItem
@@ -416,6 +582,7 @@ function render(nextState: WorkTerminalViewState): void {
       </footer>
     </div>
   `;
+  restoreFilterInputSnapshot(filterInputSnapshot);
 }
 
 function getSelectedItem(nextState: WorkTerminalViewState): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
@@ -426,10 +593,49 @@ function getSelectedItem(nextState: WorkTerminalViewState): WorkTerminalViewStat
   );
 }
 
+function getActionableSelectedItem(
+  nextState: WorkTerminalViewState,
+  query: string,
+): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
+  if (query.trim().length === 0) {
+    return getSelectedItem(nextState);
+  }
+
+  const visibleItems = getVisibleBoardColumns(nextState, query).flatMap((column) => column.items);
+  return visibleItems.find((item) => item.id === nextState.selectedItemId) ?? null;
+}
+
+function captureFilterInputSnapshot(): FilterInputSnapshot {
+  const input = rootElement.querySelector<HTMLInputElement>('input[data-action="filter-items"]');
+  return {
+    selectionEnd: input?.selectionEnd ?? null,
+    selectionStart: input?.selectionStart ?? null,
+    wasFocused: document.activeElement === input,
+  };
+}
+
+function restoreFilterInputSnapshot(snapshot: FilterInputSnapshot): void {
+  if (!snapshot.wasFocused) {
+    return;
+  }
+
+  const input = rootElement.querySelector<HTMLInputElement>('input[data-action="filter-items"]');
+  input?.focus();
+  if (input && snapshot.selectionStart != null && snapshot.selectionEnd != null) {
+    input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+  }
+}
+
 function createFallbackState(): WorkTerminalViewState {
   return {
     agentProfiles: [],
     boardColumns: [],
+    collapsedColumns: {
+      priority: false,
+      todo: false,
+      active: false,
+      done: false,
+    },
     columnSummaries: [],
     latestWorkItemTitle: null,
     recentlyClosedSessions: [],
@@ -446,6 +652,7 @@ function createFallbackState(): WorkTerminalViewState {
 
 function persistState(): void {
   vscode.setState({
+    filterQuery,
     selectedItemId: state.selectedItemId,
     viewState: state,
   });
@@ -491,6 +698,45 @@ function formatActivityState(value: "active" | "idle" | "waiting"): string {
     case "waiting":
       return "Waiting";
   }
+}
+
+function getVisibleBoardColumns(nextState: WorkTerminalViewState, query: string): WorkTerminalViewState["boardColumns"] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return nextState.boardColumns;
+  }
+
+  return nextState.boardColumns.map((column) => ({
+    ...column,
+    items: column.items.filter((item) => {
+      const haystacks = [item.title, item.description ?? "", item.priorityLevel, item.sourceKind];
+      return haystacks.some((value) => value.toLowerCase().includes(normalizedQuery));
+    }),
+  }));
+}
+
+function getDropIndex(clientY: number, container: HTMLElement, draggedItemId: string): number {
+  const cards = Array.from(container.querySelectorAll<HTMLElement>(".work-item-card[data-work-item-id]"))
+    .filter((element) => element.dataset.workItemId !== draggedItemId);
+
+  for (const [index, card] of cards.entries()) {
+    const rect = card.getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) {
+      return index;
+    }
+  }
+
+  return cards.length;
+}
+
+function clearDropTargets(): void {
+  document.querySelectorAll(".board-column-items.is-drop-target").forEach((element) => {
+    element.classList.remove("is-drop-target");
+  });
+}
+
+function isBoardColumnId(value: string | undefined): value is BoardColumnId {
+  return value === "priority" || value === "todo" || value === "active" || value === "done";
 }
 
 function capitalize(value: string): string {
