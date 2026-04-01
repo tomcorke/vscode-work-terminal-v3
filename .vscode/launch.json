@@ -7,14 +7,14 @@
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
-      "preLaunchTask": "npm: build"
+      "preLaunchTask": "pnpm: build"
     },
     {
       "name": "Run Vitest suite",
       "type": "node",
       "request": "launch",
-      "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
-      "args": ["run"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["exec", "vitest", "run"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
     }

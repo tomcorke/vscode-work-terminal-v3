@@ -2,28 +2,32 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "npm: build",
-      "type": "npm",
-      "script": "build",
+      "label": "pnpm: build",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["build"],
       "problemMatcher": []
     },
     {
-      "label": "npm: watch",
-      "type": "npm",
-      "script": "watch",
+      "label": "pnpm: watch",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["watch"],
       "isBackground": true,
       "problemMatcher": []
     },
     {
-      "label": "npm: check",
-      "type": "npm",
-      "script": "check",
+      "label": "pnpm: check",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["check"],
       "problemMatcher": []
     },
     {
-      "label": "npm: coverage",
-      "type": "npm",
-      "script": "coverage",
+      "label": "pnpm: coverage",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["coverage"],
       "problemMatcher": []
     }
   ]

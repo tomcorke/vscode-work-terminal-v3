@@ -18,43 +18,43 @@ The current branch delivers a functional vertical slice of the VS Code port:
 Install dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 
 Build once:
 
 ```bash
-npm run build
+pnpm build
 ```
 
 Watch during development:
 
 ```bash
-npm run watch
+pnpm watch
 ```
 
 Run validation:
 
 ```bash
-npm run check
+pnpm check
 ```
 
 Generate a coverage report:
 
 ```bash
-npm run coverage
+pnpm coverage
 ```
 
 ## Launching in VS Code
 
 1. Open this repository in VS Code.
-2. Run `npm install`.
+2. Run `pnpm install`.
 3. Press `F5` using the `Run Work Terminal extension` launch config.
 4. Open the `Work Terminal` activity bar view.
 5. Use `Work Terminal: Create Work Item` or the in-view controls to seed items in the current workspace.
 6. Launch shell, Claude, or Copilot sessions from a selected work item.
 
-For iterative rebuilds while you edit, you can still run `npm run watch` manually in a terminal.
+For iterative rebuilds while you edit, you can still run `pnpm watch` manually in a terminal.
 
 The repository now includes:
 
