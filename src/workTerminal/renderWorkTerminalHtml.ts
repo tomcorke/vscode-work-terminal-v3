@@ -18,8 +18,17 @@ export interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
+  readonly selectedItemId: string | null;
   readonly status: string;
   readonly storagePath: string | null;
+  readonly terminalSessionCountByItemId: Record<string, number>;
+  readonly terminalSessions: ReadonlyArray<{
+    readonly id: string;
+    readonly itemId: string;
+    readonly itemTitle: string;
+    readonly kind: "shell";
+    readonly label: string;
+  }>;
   readonly totalWorkItems: number;
   readonly workspaceName: string;
   readonly lastUpdatedLabel: string;

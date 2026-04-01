@@ -20,22 +20,33 @@ interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
+  readonly selectedItemId: string | null;
   readonly status: string;
   readonly storagePath: string | null;
+  readonly terminalSessionCountByItemId: Record<string, number>;
+  readonly terminalSessions: ReadonlyArray<{
+    readonly id: string;
+    readonly itemId: string;
+    readonly itemTitle: string;
+    readonly kind: "shell";
+    readonly label: string;
+  }>;
   readonly totalWorkItems: number;
   readonly workspaceName: string;
   readonly lastUpdatedLabel: string;
 }
 
-type IncomingMessage = {
-  readonly type: "state-updated";
-  readonly payload: WorkTerminalViewState;
-};
+type IncomingMessage = { readonly type: "state-updated"; readonly payload: WorkTerminalViewState };
 
 interface VsCodeApi<TState> {
   postMessage(message: unknown): void;
   getState(): TState | undefined;
   setState(state: TState): void;
+}
+
+interface PersistedWebviewState {
+  readonly selectedItemId: string | null;
+  readonly viewState: WorkTerminalViewState;
 }
 
 declare const window: Window &
@@ -45,7 +56,7 @@ declare const window: Window &
 
 declare function acquireVsCodeApi<TState>(): VsCodeApi<TState>;
 
-const vscode = acquireVsCodeApi<WorkTerminalViewState>();
+const vscode = acquireVsCodeApi<PersistedWebviewState>();
 const root = document.querySelector<HTMLDivElement>("#work-terminal-root");
 
 if (!root) {
@@ -53,12 +64,12 @@ if (!root) {
 }
 
 const rootElement = root;
+const persistedState = vscode.getState();
 
-let state = vscode.getState() ?? window.__WORK_TERMINAL_INITIAL_STATE__ ?? createFallbackState();
-let selectedItemId: string | null = state.boardColumns.flatMap((column) => column.items)[0]?.id ?? null;
+let state = persistedState?.viewState ?? window.__WORK_TERMINAL_INITIAL_STATE__ ?? createFallbackState();
 
 render(state);
-vscode.setState(state);
+persistState();
 vscode.postMessage({ type: "ready" });
 
 window.addEventListener("message", (event: MessageEvent<IncomingMessage>) => {
@@ -88,25 +99,55 @@ root.addEventListener("click", (event: MouseEvent) => {
     return;
   }
 
+  if (target.dataset.action === "launch-shell") {
+    if (!state.selectedItemId) {
+      return;
+    }
+
+    const selectedItem = state.boardColumns
+      .flatMap((column) => column.items)
+      .find((item) => item.id === state.selectedItemId);
+
+    if (selectedItem) {
+      vscode.postMessage({
+        type: "launch-shell-requested",
+        itemId: selectedItem.id,
+        itemTitle: selectedItem.title,
+      });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "focus-terminal") {
+    const terminalId = target.dataset.terminalId;
+    if (terminalId) {
+      vscode.postMessage({ type: "focus-terminal-requested", terminalId });
+    }
+    return;
+  }
+
   const card = target.closest<HTMLElement>("[data-work-item-id]");
   if (card) {
-    selectedItemId = card.dataset.workItemId ?? null;
-    render(state);
+    const itemId = card.dataset.workItemId ?? null;
+    applyState({ ...state, selectedItemId: itemId });
+    vscode.postMessage({ type: "work-item-selected", itemId });
   }
 });
 
 function applyState(nextState: WorkTerminalViewState): void {
   render(nextState);
-  vscode.setState(nextState);
+  persistState();
 }
 
 function render(nextState: WorkTerminalViewState): void {
   state = nextState;
   const selectedItem =
-    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === selectedItemId) ??
+    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === nextState.selectedItemId) ??
     nextState.boardColumns.flatMap((column) => column.items)[0] ??
     null;
-  selectedItemId = selectedItem?.id ?? null;
+  const selectedItemSessions = selectedItem
+    ? nextState.terminalSessions.filter((session) => session.itemId === selectedItem.id)
+    : [];
   rootElement.innerHTML = `
     <div class="app-shell">
       <header class="topbar">
@@ -142,7 +183,7 @@ function render(nextState: WorkTerminalViewState): void {
                               .map(
                                 (item) => `
                                   <button
-                                    class="work-item-card${item.id === selectedItemId ? " is-selected" : ""}"
+                                    class="work-item-card${item.id === nextState.selectedItemId ? " is-selected" : ""}"
                                     type="button"
                                     data-work-item-id="${escapeHtml(item.id)}"
                                   >
@@ -184,6 +225,14 @@ function render(nextState: WorkTerminalViewState): void {
               <h3>Selected item</h3>
               <p>${escapeHtml(selectedItem?.title ?? "No work items created yet.")}</p>
               <p>${escapeHtml(selectedItem?.description ?? "Selection currently lives in the webview. Host-backed actions come next.")}</p>
+              ${
+                selectedItem
+                  ? `<div class="card-actions">
+                      <button class="ghost-button" type="button" data-action="launch-shell">Open shell session</button>
+                      <span class="pill">${nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0} session${(nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0) === 1 ? "" : "s"}</span>
+                    </div>`
+                  : ""
+              }
             </article>
           </div>
         </section>
@@ -191,16 +240,44 @@ function render(nextState: WorkTerminalViewState): void {
         <section class="panel terminal-panel">
           <div class="panel-header">
             <h2>Terminal area</h2>
-            <span class="pill">Next slice: sessions</span>
+            <span class="pill">${nextState.terminalSessions.length} open session${nextState.terminalSessions.length === 1 ? "" : "s"}</span>
           </div>
           <div class="placeholder-stack">
             <article class="card">
-              <h3>Session surface</h3>
-              <p>Terminal tabs, launches, and output streams will appear here.</p>
+              <h3>Shell sessions</h3>
+              ${
+                selectedItem
+                  ? selectedItemSessions.length > 0
+                    ? `<ul class="session-list">
+                        ${selectedItemSessions
+                          .map(
+                            (session) => `
+                              <li class="session-list-item">
+                                <div>
+                                  <strong>${escapeHtml(session.label)}</strong>
+                                  <p>${escapeHtml(session.itemTitle)}</p>
+                                </div>
+                                <button
+                                  class="ghost-button"
+                                  type="button"
+                                  data-action="focus-terminal"
+                                  data-terminal-id="${escapeHtml(session.id)}"
+                                >
+                                  Focus terminal
+                                </button>
+                              </li>
+                            `,
+                          )
+                          .join("")}
+                      </ul>`
+                    : `<p>No shell sessions are open for "${escapeHtml(selectedItem.title)}" yet.</p>`
+                  : "<p>Select a work item to manage its shell sessions.</p>"
+              }
             </article>
             <article class="card">
-              <h3>Status</h3>
+              <h3>Host-managed sessions</h3>
               <p>${escapeHtml(nextState.status)}</p>
+              <p>Shell sessions currently open in VS Code's terminal panel are tracked here by work item.</p>
             </article>
           </div>
         </section>
@@ -219,12 +296,22 @@ function createFallbackState(): WorkTerminalViewState {
     boardColumns: [],
     columnSummaries: [],
     latestWorkItemTitle: null,
+    selectedItemId: null,
     status: "Scaffold ready",
     storagePath: null,
+    terminalSessionCountByItemId: {},
+    terminalSessions: [],
     totalWorkItems: 0,
     workspaceName: "No workspace",
     lastUpdatedLabel: "Not yet updated",
   };
+}
+
+function persistState(): void {
+  vscode.setState({
+    selectedItemId: state.selectedItemId,
+    viewState: state,
+  });
 }
 
 function escapeHtml(value: string): string {

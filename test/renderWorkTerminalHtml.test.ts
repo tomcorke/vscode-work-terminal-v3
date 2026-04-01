@@ -31,8 +31,21 @@ describe("renderWorkTerminalHtml", () => {
           { count: 0, id: "todo", label: "To Do" },
         ],
         latestWorkItemTitle: "Demo task",
+        selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
         storagePath: "/tmp/workspace/.work-terminal/work-items.v1.json",
+        terminalSessionCountByItemId: {
+          "123e4567-e89b-12d3-a456-426614174000": 1,
+        },
+        terminalSessions: [
+          {
+            id: "223e4567-e89b-12d3-a456-426614174000",
+            itemId: "123e4567-e89b-12d3-a456-426614174000",
+            itemTitle: "Demo task",
+            kind: "shell",
+            label: "Demo task - Shell",
+          },
+        ],
         totalWorkItems: 1,
         workspaceName: "Demo Workspace",
         lastUpdatedLabel: "10:00:00",
