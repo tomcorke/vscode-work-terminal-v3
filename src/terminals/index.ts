@@ -1,5 +1,5 @@
+export { TerminalSessionStore, type TerminalSessionSummary, type TerminalStoreSummary } from "./TerminalSessionStore";
 export {
-  TerminalSessionStore,
-  type TerminalSessionSummary,
-  type TerminalStoreSummary,
-} from "./TerminalSessionStore";
+  TerminalSessionPersistence,
+  type PersistedTerminalSession,
+} from "./TerminalSessionPersistence";

@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type ConfigurationValues = Record<string, string>;
@@ -16,7 +20,9 @@ const configurationValues: ConfigurationValues = {
 };
 
 const createdTerminals: MockTerminal[] = [];
+const createdTerminalOptions: unknown[] = [];
 const closeListeners: Array<(terminal: MockTerminal) => void> = [];
+const tempDirectories: string[] = [];
 
 vi.mock("vscode", () => {
   class Disposable {
@@ -54,13 +60,14 @@ vi.mock("vscode", () => {
     Disposable,
     EventEmitter,
     window: {
-      createTerminal: vi.fn(() => {
+      createTerminal: vi.fn((options: unknown) => {
         const terminal: MockTerminal = {
           dispose: vi.fn(),
           sendText: vi.fn(),
           show: vi.fn(),
         };
         createdTerminals.push(terminal);
+        createdTerminalOptions.push(options);
         return terminal;
       }),
       onDidCloseTerminal: vi.fn((listener: (terminal: MockTerminal) => void) => {
@@ -85,6 +92,7 @@ vi.mock("vscode", () => {
 describe("TerminalSessionStore", () => {
   beforeEach(() => {
     createdTerminals.length = 0;
+    createdTerminalOptions.length = 0;
     closeListeners.length = 0;
     configurationValues.claudeCommand = "claude";
     configurationValues.claudeExtraArgs = "";
@@ -98,11 +106,19 @@ describe("TerminalSessionStore", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(async () => {
+    await Promise.all(
+      tempDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })),
+    );
+  });
+
   it("creates shell sessions and counts them by work item", async () => {
     const { TerminalSessionStore } = await import("../../src/terminals");
-    const store = new TerminalSessionStore();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
 
-    const session = store.createShellSession("item-1", "Demo item", null, "/workspace");
+    const session = await store.createShellSession("item-1", "Demo item", null, "/workspace");
     const summary = store.getSummary();
 
     expect(session.kind).toBe("shell");
@@ -117,9 +133,11 @@ describe("TerminalSessionStore", () => {
     configurationValues.claudeCommand = process.execPath;
 
     const { TerminalSessionStore } = await import("../../src/terminals");
-    const store = new TerminalSessionStore();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
 
-    const result = store.createAgentSession({
+    const result = await store.createAgentSession({
       cwd: "/workspace",
       itemDescription: "Look into the regression",
       itemId: "item-1",
@@ -145,9 +163,11 @@ describe("TerminalSessionStore", () => {
     configurationValues.claudeCommand = process.execPath;
 
     const { TerminalSessionStore } = await import("../../src/terminals");
-    const store = new TerminalSessionStore();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
 
-    const result = store.createAgentSession({
+    const result = await store.createAgentSession({
       cwd: "/workspace",
       itemDescription: "Look into the regression",
       itemId: "item-1",
@@ -159,6 +179,7 @@ describe("TerminalSessionStore", () => {
 
     closeListeners[0]?.(createdTerminals[0]);
     vi.runAllTimers();
+    await waitForPersistedSessionCount(store, 0);
 
     expect(createdTerminals[0].sendText).not.toHaveBeenCalled();
 
@@ -169,9 +190,11 @@ describe("TerminalSessionStore", () => {
     configurationValues.claudeCommand = "definitely-missing-command-for-test";
 
     const { TerminalSessionStore } = await import("../../src/terminals");
-    const store = new TerminalSessionStore();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
 
-    const result = store.createAgentSession({
+    const result = await store.createAgentSession({
       cwd: "/workspace",
       itemDescription: null,
       itemId: "item-1",
@@ -187,14 +210,17 @@ describe("TerminalSessionStore", () => {
 
   it("emits session change events on create and close", async () => {
     const { TerminalSessionStore } = await import("../../src/terminals");
-    const store = new TerminalSessionStore();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
     const onChange = vi.fn();
     const disposable = store.onDidChangeSessions(onChange);
 
-    store.createShellSession("item-1", "Demo item", null, "/workspace");
+    await store.createShellSession("item-1", "Demo item", null, "/workspace");
     expect(onChange).toHaveBeenCalledTimes(1);
 
     closeListeners[0]?.(createdTerminals[0]);
+    await waitForPersistedSessionCount(store, 0);
     expect(onChange).toHaveBeenCalledTimes(2);
     expect(store.getSummary().sessions).toHaveLength(0);
 
@@ -202,13 +228,65 @@ describe("TerminalSessionStore", () => {
     store.dispose();
   });
 
-  it("disposes managed terminals when the store is disposed", async () => {
+  it("keeps terminals open when the store is disposed so recovery metadata survives shutdown", async () => {
     const { TerminalSessionStore } = await import("../../src/terminals");
-    const store = new TerminalSessionStore();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
 
-    store.createShellSession("item-1", "Demo item", null, "/workspace");
+    await store.createShellSession("item-1", "Demo item", null, "/workspace");
     store.dispose();
 
-    expect(createdTerminals[0].dispose).toHaveBeenCalledTimes(1);
+    expect(createdTerminals[0].dispose).not.toHaveBeenCalled();
+  });
+
+  it("restores persisted Claude sessions with the same resume session id", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude-context",
+    });
+
+    expect(result.error).toBeNull();
+    const originalResumeSessionId = result.session?.resumeSessionId;
+    const snapshotPath = store.getStoragePath();
+    store.dispose();
+
+    const restoredStore = new TerminalSessionStore(workspaceRoot);
+    const recovery = await restoredStore.restorePersistedSessions();
+    const restoredSummary = restoredStore.getSummary();
+    const persistedContent = await readFile(snapshotPath!, "utf8");
+
+    expect(recovery.restoredCount).toBe(1);
+    expect(recovery.skippedCount).toBe(0);
+    expect(restoredSummary.sessions[0]?.resumeSessionId).toBe(originalResumeSessionId);
+    expect(createdTerminals[1].show).not.toHaveBeenCalled();
+    expect(createdTerminalOptions[1]).toMatchObject({
+      cwd: "/workspace",
+      shellArgs: expect.arrayContaining(["--session-id", originalResumeSessionId]),
+      shellPath: process.execPath,
+    });
+    expect(persistedContent).toContain(originalResumeSessionId);
+
+    restoredStore.dispose();
   });
 });
+
+async function waitForPersistedSessionCount(store: { getStoragePath(): string | null }, expectedCount: number): Promise<void> {
+  const snapshotPath = store.getStoragePath();
+
+  await vi.waitFor(async () => {
+    const content = await readFile(snapshotPath!, "utf8");
+    const parsed = JSON.parse(content) as { sessions?: unknown[] };
+    expect(parsed.sessions).toHaveLength(expectedCount);
+  });
+}

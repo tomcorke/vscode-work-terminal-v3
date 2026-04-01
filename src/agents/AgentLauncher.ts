@@ -21,6 +21,7 @@ export function buildAgentLaunchPlan(options: {
   readonly configuredExtraArgs: string;
   readonly contextPrompt: string | null;
   readonly profile: AgentProfile;
+  readonly resumeSessionId?: string | null;
 }): AgentLaunchPlan {
   const commandTokens = splitConfiguredCommand(options.configuredCommand.trim());
 
@@ -31,7 +32,7 @@ export function buildAgentLaunchPlan(options: {
   const executable = commandTokens[0];
   const baseArgs = commandTokens.slice(1);
   const extraArgs = splitConfiguredCommand(options.configuredExtraArgs.trim());
-  const sessionId = options.profile.kind === "claude" ? crypto.randomUUID() : null;
+  const sessionId = options.profile.kind === "claude" ? options.resumeSessionId ?? crypto.randomUUID() : null;
   const agentArgs = options.profile.kind === "claude" && sessionId ? ["--session-id", sessionId] : [];
 
   return {

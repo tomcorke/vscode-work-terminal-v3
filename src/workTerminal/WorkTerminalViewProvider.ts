@@ -32,7 +32,7 @@ type WorkTerminalWebviewMessage =
 export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "workTerminal.view";
 
-  private lastStatus = "Scaffold ready";
+  private lastStatus = "Work Terminal ready";
   private selectedItemId: string | null = null;
   private view: vscode.WebviewView | undefined;
 
@@ -65,7 +65,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       cspSource: webviewView.webview.cspSource,
       nonce: getNonce(),
       scriptUri: scriptUri.toString(),
-      state: await this.createViewState("Scaffold ready"),
+      state: await this.createViewState(this.lastStatus),
       styleUri: styleUri.toString(),
     });
 
@@ -156,7 +156,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
   public async launchShell(itemId: string, itemTitle: string, itemDescription: string | null): Promise<void> {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const session = this.terminalStore.createShellSession(itemId, itemTitle, itemDescription, cwd);
+    const session = await this.terminalStore.createShellSession(itemId, itemTitle, itemDescription, cwd);
 
     await this.refresh(`Opened shell session "${session.label}"`);
   }
@@ -168,7 +168,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     itemDescription: string | null,
   ): Promise<void> {
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const result = this.terminalStore.createAgentSession({
+    const result = await this.terminalStore.createAgentSession({
       cwd,
       itemDescription,
       itemId,

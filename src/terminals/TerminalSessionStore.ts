@@ -9,6 +9,10 @@ import {
   type AgentProfileId,
   type AgentProfileSummary,
 } from "../agents";
+import {
+  TerminalSessionPersistence,
+  type PersistedTerminalSession,
+} from "./TerminalSessionPersistence";
 
 export interface TerminalSessionSummary {
   readonly command: string | null;
@@ -31,6 +35,7 @@ export interface TerminalStoreSummary {
 }
 
 interface StoredTerminalSession {
+  readonly persisted: PersistedTerminalSession;
   readonly summary: TerminalSessionSummary;
   readonly terminal: vscode.Terminal;
 }
@@ -38,18 +43,14 @@ interface StoredTerminalSession {
 export class TerminalSessionStore implements vscode.Disposable {
   private readonly closeDisposable: vscode.Disposable;
   private readonly pendingInitialPromptTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly persistence: TerminalSessionPersistence;
   private readonly sessionsChangedEmitter = new vscode.EventEmitter<void>();
   private readonly sessionsById = new Map<string, StoredTerminalSession>();
 
-  public constructor() {
+  public constructor(workspaceRootPath: string | null) {
+    this.persistence = new TerminalSessionPersistence(workspaceRootPath);
     this.closeDisposable = vscode.window.onDidCloseTerminal((terminal) => {
-      for (const [id, session] of this.sessionsById) {
-        if (session.terminal === terminal) {
-          this.clearPendingInitialPrompt(id);
-          this.sessionsById.delete(id);
-          this.sessionsChangedEmitter.fire();
-        }
-      }
+      void this.handleClosedTerminal(terminal);
     });
   }
 
@@ -57,8 +58,22 @@ export class TerminalSessionStore implements vscode.Disposable {
     return this.sessionsChangedEmitter.event;
   }
 
-  public createShellSession(itemId: string, itemTitle: string, itemDescription: string | null, cwd: string | undefined): TerminalSessionSummary {
-    const id = crypto.randomUUID();
+  public getStoragePath(): string | null {
+    return this.persistence.getStoragePath();
+  }
+
+  public async createShellSession(
+    itemId: string,
+    itemTitle: string,
+    itemDescription: string | null,
+    cwd: string | undefined,
+    options: {
+      readonly existingId?: string;
+      readonly persist?: boolean;
+      readonly reveal?: boolean;
+    } = {},
+  ): Promise<TerminalSessionSummary> {
+    const id = options.existingId ?? crypto.randomUUID();
     const label = `${itemTitle} - Shell`;
     const terminal = vscode.window.createTerminal({
       cwd,
@@ -78,20 +93,49 @@ export class TerminalSessionStore implements vscode.Disposable {
       statusLabel: "Local shell session",
     };
 
-    this.sessionsById.set(id, { summary, terminal });
+    const persisted: PersistedTerminalSession = {
+      command: null,
+      cwd: cwd ?? null,
+      id,
+      itemDescription,
+      itemId,
+      itemTitle,
+      kind: "shell",
+      label,
+      profileId: null,
+      profileLabel: null,
+      resumeSessionId: null,
+      statusLabel: summary.statusLabel,
+    };
+
+    this.sessionsById.set(id, { persisted, summary, terminal });
     this.sessionsChangedEmitter.fire();
-    terminal.show(true);
+    if (options.persist !== false) {
+      await this.persistSession(persisted);
+    }
+
+    if (options.reveal !== false) {
+      terminal.show(true);
+    }
 
     return summary;
   }
 
-  public createAgentSession(options: {
-    readonly cwd: string | undefined;
-    readonly itemDescription: string | null;
-    readonly itemId: string;
-    readonly itemTitle: string;
-    readonly profileId: AgentProfileId;
-  }): { readonly error: string | null; readonly session: TerminalSessionSummary | null } {
+  public async createAgentSession(
+    options: {
+      readonly cwd: string | undefined;
+      readonly itemDescription: string | null;
+      readonly itemId: string;
+      readonly itemTitle: string;
+      readonly profileId: AgentProfileId;
+    },
+    createOptions: {
+      readonly existingId?: string;
+      readonly persist?: boolean;
+      readonly reveal?: boolean;
+      readonly resumeSessionId?: string | null;
+    } = {},
+  ): Promise<{ readonly error: string | null; readonly session: TerminalSessionSummary | null }> {
     const configuration = vscode.workspace.getConfiguration("workTerminal");
     const profile = getAgentProfileById(options.profileId);
 
@@ -123,6 +167,7 @@ export class TerminalSessionStore implements vscode.Disposable {
         configuredExtraArgs,
         contextPrompt,
         profile,
+        resumeSessionId: createOptions.resumeSessionId,
       });
     } catch (error) {
       return {
@@ -130,7 +175,7 @@ export class TerminalSessionStore implements vscode.Disposable {
         session: null,
       };
     }
-    const id = crypto.randomUUID();
+    const id = createOptions.existingId ?? crypto.randomUUID();
     const label = `${options.itemTitle} - ${profile.label}`;
     const terminal = vscode.window.createTerminal({
       cwd: options.cwd,
@@ -154,9 +199,30 @@ export class TerminalSessionStore implements vscode.Disposable {
         : profileSummary.resumeBehaviorLabel,
     };
 
-    this.sessionsById.set(id, { summary, terminal });
+    const persisted: PersistedTerminalSession = {
+      command: summary.command,
+      cwd: options.cwd ?? null,
+      id,
+      itemDescription: options.itemDescription,
+      itemId: options.itemId,
+      itemTitle: options.itemTitle,
+      kind: profile.kind,
+      label,
+      profileId: profile.id,
+      profileLabel: profile.label,
+      resumeSessionId: summary.resumeSessionId,
+      statusLabel: summary.statusLabel,
+    };
+
+    this.sessionsById.set(id, { persisted, summary, terminal });
     this.sessionsChangedEmitter.fire();
-    terminal.show(true);
+    if (createOptions.persist !== false) {
+      await this.persistSession(persisted);
+    }
+
+    if (createOptions.reveal !== false) {
+      terminal.show(true);
+    }
 
     const initialPrompt = launchPlan.initialPrompt;
     if (initialPrompt) {
@@ -176,6 +242,63 @@ export class TerminalSessionStore implements vscode.Disposable {
     return {
       error: null,
       session: summary,
+    };
+  }
+
+  public async restorePersistedSessions(): Promise<{
+    readonly restoredCount: number;
+    readonly skippedCount: number;
+  }> {
+    const sessions = await this.persistence.loadSessions();
+    let restoredCount = 0;
+    let skippedCount = 0;
+
+    for (const session of sessions) {
+      if (session.kind === "shell") {
+        await this.createShellSession(
+          session.itemId,
+          session.itemTitle,
+          session.itemDescription,
+          session.cwd ?? undefined,
+          {
+            existingId: session.id,
+            reveal: false,
+          },
+        );
+        restoredCount += 1;
+        continue;
+      }
+
+      if (!session.profileId) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const result = await this.createAgentSession(
+        {
+          cwd: session.cwd ?? undefined,
+          itemDescription: session.itemDescription,
+          itemId: session.itemId,
+          itemTitle: session.itemTitle,
+          profileId: session.profileId,
+        },
+        {
+          existingId: session.id,
+          resumeSessionId: session.resumeSessionId,
+          reveal: false,
+        },
+      );
+
+      if (result.session) {
+        restoredCount += 1;
+      } else {
+        skippedCount += 1;
+      }
+    }
+
+    return {
+      restoredCount,
+      skippedCount,
     };
   }
 
@@ -210,11 +333,22 @@ export class TerminalSessionStore implements vscode.Disposable {
       clearTimeout(timer);
     }
     this.pendingInitialPromptTimers.clear();
-    for (const session of this.sessionsById.values()) {
-      session.terminal.dispose();
-    }
     this.sessionsChangedEmitter.dispose();
     this.sessionsById.clear();
+  }
+
+  private async handleClosedTerminal(terminal: vscode.Terminal): Promise<void> {
+    for (const [id, session] of this.sessionsById) {
+      if (session.terminal !== terminal) {
+        continue;
+      }
+
+      this.clearPendingInitialPrompt(id);
+      this.sessionsById.delete(id);
+      this.sessionsChangedEmitter.fire();
+      await this.deletePersistedSession(id);
+      return;
+    }
   }
 
   private clearPendingInitialPrompt(id: string): void {
@@ -226,4 +360,43 @@ export class TerminalSessionStore implements vscode.Disposable {
     clearTimeout(timer);
     this.pendingInitialPromptTimers.delete(id);
   }
+
+  private async deletePersistedSession(id: string): Promise<void> {
+    try {
+      await this.persistence.deleteSession(id);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return;
+      }
+
+      console.warn(
+        `[work-terminal] Failed to delete persisted terminal session "${id}".`,
+        error,
+      );
+    }
+  }
+
+  private async persistSession(session: PersistedTerminalSession): Promise<void> {
+    try {
+      await this.persistence.upsertSession(session);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return;
+      }
+
+      console.warn(
+        `[work-terminal] Failed to persist terminal session "${session.id}".`,
+        error,
+      );
+    }
+  }
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT",
+  );
 }
