@@ -24,6 +24,7 @@ const configurationValues: ConfigurationValues = {
 };
 
 const createdTerminals: MockTerminal[] = [];
+const openTerminals: MockTerminal[] = [];
 const createdTerminalOptions: unknown[] = [];
 const closeListeners: Array<(terminal: MockTerminal) => void> = [];
 const terminalStateListeners: Array<(terminal: MockTerminal) => void> = [];
@@ -76,9 +77,13 @@ vi.mock("vscode", () => {
           },
         };
         createdTerminals.push(terminal);
+        openTerminals.push(terminal);
         createdTerminalOptions.push(options);
         return terminal;
       }),
+      get terminals() {
+        return openTerminals;
+      },
       onDidCloseTerminal: vi.fn((listener: (terminal: MockTerminal) => void) => {
         closeListeners.push(listener);
         return new Disposable(() => {
@@ -110,6 +115,7 @@ vi.mock("vscode", () => {
 describe("TerminalSessionStore", () => {
   beforeEach(() => {
     createdTerminals.length = 0;
+    openTerminals.length = 0;
     createdTerminalOptions.length = 0;
     closeListeners.length = 0;
     terminalStateListeners.length = 0;
@@ -281,6 +287,7 @@ describe("TerminalSessionStore", () => {
     const originalResumeSessionId = result.session?.resumeSessionId;
     const snapshotPath = store.getStoragePath();
     store.dispose();
+    openTerminals.length = 0;
 
     const restoredStore = new TerminalSessionStore(workspaceRoot);
     const recovery = await restoredStore.restorePersistedSessions();
@@ -297,6 +304,167 @@ describe("TerminalSessionStore", () => {
       shellPath: process.execPath,
     });
     expect(persistedContent).toContain(originalResumeSessionId);
+
+    restoredStore.dispose();
+  });
+
+  it("reconciles already open terminals during recovery instead of relaunching duplicates", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude",
+    });
+
+    expect(result.error).toBeNull();
+    createdTerminals[0].show.mockClear();
+    store.dispose();
+
+    const restoredStore = new TerminalSessionStore(workspaceRoot);
+    const recovery = await restoredStore.restorePersistedSessions();
+    const restoredSummary = restoredStore.getSummary();
+
+    expect(recovery.restoredCount).toBe(1);
+    expect(recovery.skippedCount).toBe(0);
+    expect(createdTerminals).toHaveLength(1);
+    expect(createdTerminalOptions).toHaveLength(1);
+    expect(createdTerminals[0].show).not.toHaveBeenCalled();
+    expect(restoredSummary.sessions).toHaveLength(1);
+    expect(restoredSummary.sessions[0]?.id).toBe(result.session?.id);
+
+    restoredStore.dispose();
+  });
+
+  it("does not replay the delayed context prompt when restoring a resumed context session", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude-context",
+    });
+
+    expect(result.error).toBeNull();
+    const originalResumeSessionId = result.session?.resumeSessionId;
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(createdTerminals[0].sendText).toHaveBeenCalledWith(
+      expect.stringContaining("Work item context:"),
+      true,
+    );
+
+    store.dispose();
+    openTerminals.length = 0;
+
+    const restoredStore = new TerminalSessionStore(workspaceRoot);
+    const recovery = await restoredStore.restorePersistedSessions();
+
+    expect(recovery.restoredCount).toBe(1);
+    expect(createdTerminals).toHaveLength(2);
+    expect(createdTerminalOptions[1]).toMatchObject({
+      shellArgs: expect.arrayContaining(["--session-id", originalResumeSessionId]),
+      shellPath: process.execPath,
+    });
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(createdTerminals[1].sendText).not.toHaveBeenCalled();
+    expect(restoredStore.getSummary().sessions[0]?.statusLabel).toContain("without replaying the context prompt");
+
+    restoredStore.dispose();
+  });
+
+  it("does not auto-adopt surviving terminals when persisted labels are ambiguous", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const first = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "First task",
+      itemId: "item-1",
+      itemTitle: "Shared title",
+      profileId: "claude",
+    });
+    const second = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Second task",
+      itemId: "item-2",
+      itemTitle: "Shared title",
+      profileId: "claude",
+    });
+
+    expect(first.error).toBeNull();
+    expect(second.error).toBeNull();
+    store.dispose();
+
+    openTerminals.splice(1);
+
+    const restoredStore = new TerminalSessionStore(workspaceRoot);
+    const recovery = await restoredStore.restorePersistedSessions();
+
+    expect(recovery.restoredCount).toBe(2);
+    expect(recovery.skippedCount).toBe(0);
+    expect(createdTerminals).toHaveLength(4);
+    expect(restoredStore.getSummary().sessions).toHaveLength(2);
+
+    restoredStore.dispose();
+  });
+
+  it("replays the delayed context prompt when restoring non-resumable context sessions", async () => {
+    configurationValues.copilotCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "copilot-context",
+    });
+
+    expect(result.error).toBeNull();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(createdTerminals[0].sendText).toHaveBeenCalledWith(
+      expect.stringContaining("Work item context:"),
+      true,
+    );
+
+    store.dispose();
+    openTerminals.length = 0;
+
+    const restoredStore = new TerminalSessionStore(workspaceRoot);
+    const recovery = await restoredStore.restorePersistedSessions();
+
+    expect(recovery.restoredCount).toBe(1);
+    expect(createdTerminals).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(createdTerminals[1].sendText).toHaveBeenCalledWith(
+      expect.stringContaining("Work item context:"),
+      true,
+    );
+    expect(restoredStore.getSummary().sessions[0]?.statusLabel).toContain("Context prompt sent after launch");
 
     restoredStore.dispose();
   });
@@ -438,6 +606,7 @@ describe("TerminalSessionStore", () => {
       expect(store.getSummary().sessions[0]?.label).toBe("Investigate regression - Claude renamed");
     });
     store.dispose();
+    openTerminals.length = 0;
 
     const restoredStore = new TerminalSessionStore(workspaceRoot);
     await restoredStore.restorePersistedSessions();

@@ -173,6 +173,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       readonly persist?: boolean;
       readonly reveal?: boolean;
       readonly resumeSessionId?: string | null;
+      readonly skipInitialPrompt?: boolean;
     } = {},
   ): Promise<{ readonly error: string | null; readonly session: TerminalSessionSummary | null }> {
     const configuration = vscode.workspace.getConfiguration("workTerminal");
@@ -198,7 +199,9 @@ export class TerminalSessionStore implements vscode.Disposable {
       profile.defaultCommand,
     );
     const configuredExtraArgs = configuration.get<string>(profile.extraArgsConfigurationKey, "") ?? "";
-    const contextPrompt = buildWorkItemContextPrompt(options.itemTitle, options.itemDescription);
+    const contextPrompt = createOptions.skipInitialPrompt
+      ? null
+      : buildWorkItemContextPrompt(options.itemTitle, options.itemDescription);
     let launchPlan;
     try {
       launchPlan = buildAgentLaunchPlan({
@@ -222,6 +225,11 @@ export class TerminalSessionStore implements vscode.Disposable {
       shellArgs: [...launchPlan.args],
       shellPath: launchPlan.executable,
     });
+    const statusLabel = profile.usesContext
+      ? (createOptions.skipInitialPrompt
+        ? `${profileSummary.resumeBehaviorLabel}. Resumed without replaying the context prompt.`
+        : `${profileSummary.statusLabel}. Context prompt sent after launch.`)
+      : profileSummary.resumeBehaviorLabel;
     const summary: TerminalSessionSummary = {
       activityState: "active",
       activityStateLabel: "Launching agent session",
@@ -235,9 +243,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       profileId: profile.id,
       profileLabel: profile.label,
       resumeSessionId: launchPlan.sessionId,
-      statusLabel: profile.usesContext
-        ? `${profileSummary.statusLabel}. Context prompt sent after launch.`
-        : profileSummary.resumeBehaviorLabel,
+      statusLabel,
     };
 
     const persisted: PersistedTerminalSession = {
@@ -303,10 +309,30 @@ export class TerminalSessionStore implements vscode.Disposable {
   }> {
     const sessions = await this.persistence.loadSessions();
     this.recentlyClosedSessions = await this.persistence.loadRecentlyClosedSessions();
+    const survivingTerminals = [...vscode.window.terminals];
+    const matchedTerminals = new Set<vscode.Terminal>();
+    const persistedLabelCounts = countLabels(sessions.map((session) => session.label));
+    const survivingLabelCounts = countLabels(survivingTerminals.map((terminal) => terminal.name));
     let restoredCount = 0;
     let skippedCount = 0;
 
     for (const session of sessions) {
+      const normalizedLabel = session.label.trim();
+      const canAdoptByLabel = normalizedLabel.length > 0 &&
+        (persistedLabelCounts.get(normalizedLabel) ?? 0) === 1 &&
+        (survivingLabelCounts.get(normalizedLabel) ?? 0) === 1;
+      const existingTerminal = canAdoptByLabel
+        ? survivingTerminals.find((terminal) => {
+          return !matchedTerminals.has(terminal) && terminal.name.trim() === normalizedLabel;
+        })
+        : undefined;
+      if (existingTerminal) {
+        matchedTerminals.add(existingTerminal);
+        await this.restoreTrackedSession(session, existingTerminal);
+        restoredCount += 1;
+        continue;
+      }
+
       if (session.kind === "shell") {
         await this.createShellSession(
           session.itemId,
@@ -339,6 +365,7 @@ export class TerminalSessionStore implements vscode.Disposable {
           existingId: session.id,
           existingLabel: session.label,
           resumeSessionId: session.resumeSessionId,
+          skipInitialPrompt: shouldSkipInitialPromptOnRestore(session.profileId, session.resumeSessionId),
           reveal: false,
         },
       );
@@ -658,6 +685,43 @@ export class TerminalSessionStore implements vscode.Disposable {
       },
     };
   }
+
+  private async restoreTrackedSession(session: PersistedTerminalSession, terminal: vscode.Terminal): Promise<void> {
+    const observedLabel = terminal.name.trim() || session.label;
+    const now = Date.now();
+
+    const storedSession = this.withDerivedAgentState({
+      createdAt: now - AGENT_ACTIVE_WINDOW_MS,
+      hasObservedSignal: terminal.state.isInteractedWith,
+      lastActivityAt: terminal.state.isInteractedWith ? now : now - AGENT_ACTIVE_WINDOW_MS,
+      lastObservedTerminalName: observedLabel,
+      persisted: {
+        ...session,
+        label: observedLabel,
+      },
+      summary: {
+        activityState: session.kind === "shell" ? null : "waiting",
+        activityStateLabel: session.kind === "shell" ? null : "Waiting for detectable terminal signals",
+        command: session.command,
+        id: session.id,
+        itemDescription: session.itemDescription,
+        itemId: session.itemId,
+        itemTitle: session.itemTitle,
+        kind: session.kind,
+        label: observedLabel,
+        profileId: session.profileId,
+        profileLabel: session.profileLabel,
+        resumeSessionId: session.resumeSessionId,
+        statusLabel: session.statusLabel,
+      },
+      terminal,
+    }, now);
+
+    this.sessionsById.set(session.id, storedSession);
+    if (observedLabel !== session.label) {
+      await this.persistSession(storedSession.persisted);
+    }
+  }
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
@@ -690,4 +754,30 @@ function getAgentActivityStateLabel(state: AgentActivityState, hasObservedSignal
     case "waiting":
       return "Waiting for detectable terminal signals";
   }
+}
+
+function shouldSkipInitialPromptOnRestore(
+  profileId: AgentProfileId | null,
+  resumeSessionId: string | null,
+): boolean {
+  if (!profileId || !resumeSessionId?.trim()) {
+    return false;
+  }
+
+  const profile = getAgentProfileById(profileId);
+  return Boolean(profile && profile.kind === "claude" && profile.usesContext);
+}
+
+function countLabels(labels: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const label of labels) {
+    const normalizedLabel = label.trim();
+    if (!normalizedLabel) {
+      continue;
+    }
+
+    counts.set(normalizedLabel, (counts.get(normalizedLabel) ?? 0) + 1);
+  }
+
+  return counts;
 }
