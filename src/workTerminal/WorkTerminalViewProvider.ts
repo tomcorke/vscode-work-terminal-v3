@@ -10,7 +10,13 @@ import {
   type AgentProfileId,
 } from "../agents";
 import type { TerminalSessionStore } from "../terminals";
-import type { WorkItemStore } from "../workItems";
+import type {
+  WorkItem,
+  WorkItemColumn,
+  WorkItemPriorityLevel,
+  WorkItemSourceKind,
+  WorkItemStore,
+} from "../workItems";
 import { getNonce } from "./getNonce";
 import {
   renderWorkTerminalHtml,
@@ -20,8 +26,14 @@ import {
 type WorkTerminalWebviewMessage =
   | { readonly type: "ready"; readonly selectedItemId: string | null }
   | { readonly type: "create-work-item-requested" }
+  | { readonly type: "delete-work-item-requested"; readonly itemId: string }
+  | { readonly type: "edit-work-item-details-requested"; readonly itemId: string }
+  | { readonly type: "edit-work-item-metadata-requested"; readonly itemId: string }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
   | { readonly type: "manage-profiles-requested" }
+  | { readonly type: "more-work-item-actions-requested"; readonly itemId: string }
+  | { readonly type: "move-work-item-requested"; readonly itemId: string }
+  | { readonly type: "open-work-item-source-requested"; readonly itemId: string }
   | {
       readonly type: "reorder-item-requested";
       readonly fromColumn: "priority" | "todo" | "active" | "done";
@@ -29,7 +41,8 @@ type WorkTerminalWebviewMessage =
       readonly targetIndex: number;
       readonly toColumn: "priority" | "todo" | "active" | "done";
     }
-  | { readonly type: "reopen-recent-session-requested"; readonly sessionId: string }
+    | { readonly type: "reopen-recent-session-requested"; readonly sessionId: string }
+  | { readonly type: "split-work-item-requested"; readonly itemId: string }
   | { readonly type: "toggle-column-collapse-requested"; readonly columnId: "priority" | "todo" | "active" | "done" }
   | {
       readonly type: "launch-agent-requested";
@@ -107,6 +120,41 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
         if (message.type === "manage-profiles-requested") {
           await this.manageProfilesFromPrompt();
+          return;
+        }
+
+        if (message.type === "edit-work-item-details-requested") {
+          await this.editWorkItemDetails(message.itemId);
+          return;
+        }
+
+        if (message.type === "edit-work-item-metadata-requested") {
+          await this.editWorkItemMetadata(message.itemId);
+          return;
+        }
+
+        if (message.type === "move-work-item-requested") {
+          await this.moveWorkItem(message.itemId);
+          return;
+        }
+
+        if (message.type === "split-work-item-requested") {
+          await this.splitWorkItemFromPrompt(message.itemId);
+          return;
+        }
+
+        if (message.type === "open-work-item-source-requested") {
+          await this.openWorkItemSource(message.itemId);
+          return;
+        }
+
+        if (message.type === "delete-work-item-requested") {
+          await this.deleteWorkItemFromPrompt(message.itemId);
+          return;
+        }
+
+        if (message.type === "more-work-item-actions-requested") {
+          await this.showMoreActionsForItem(message.itemId);
           return;
         }
 
@@ -208,6 +256,317 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
     await this.refresh(`Created "${item.title}"`);
     void vscode.window.showInformationMessage(`Created work item "${item.title}".`);
+  }
+
+  public async editWorkItemDetails(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const title = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Edit work item title",
+      placeHolder: "Investigate task sync bug",
+      value: item.title,
+      validateInput: (value) => (value.trim().length > 0 ? null : "A title is required."),
+    });
+
+    if (title === undefined) {
+      return;
+    }
+
+    const description = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Edit work item description",
+      placeHolder: "Optional details for the selected work item",
+      value: item.description ?? "",
+    });
+
+    if (description === undefined) {
+      return;
+    }
+
+    const updated = await this.store.updateWorkItem(itemId, {
+      description,
+      title,
+    });
+
+    if (!updated) {
+      void vscode.window.showWarningMessage("That work item could not be updated.");
+      return;
+    }
+
+    await this.refresh(`Updated "${updated.title}"`);
+  }
+
+  public async editWorkItemMetadata(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const priorityLevel = await promptForPriorityLevel(item.priority.level);
+    if (!priorityLevel) {
+      return;
+    }
+
+    const priorityScoreValue = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Priority score",
+      placeHolder: "0-100",
+      value: String(item.priority.score),
+      validateInput: validatePriorityScoreInput,
+    });
+    if (priorityScoreValue === undefined) {
+      return;
+    }
+
+    const deadline = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Deadline",
+      placeHolder: "Optional due date or timestamp",
+      value: item.priority.deadline ?? "",
+    });
+    if (deadline === undefined) {
+      return;
+    }
+
+    const isBlocked = await promptForBlockedState(item.priority.isBlocked);
+    if (isBlocked === undefined) {
+      return;
+    }
+
+    const blockerReason = isBlocked
+      ? await vscode.window.showInputBox({
+          ignoreFocusOut: true,
+          prompt: "Blocker reason",
+          placeHolder: "Optional blocker details",
+          value: item.priority.blockerReason ?? "",
+        })
+      : "";
+    if (blockerReason === undefined) {
+      return;
+    }
+
+    const sourceKind = await promptForSourceKind(item.source.kind);
+    if (!sourceKind) {
+      return;
+    }
+
+    const sourceExternalId = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Source reference",
+      placeHolder: "Optional issue id, thread id, or ticket key",
+      value: item.source.externalId ?? "",
+    });
+    if (sourceExternalId === undefined) {
+      return;
+    }
+
+    const sourceUrl = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Source URL",
+      placeHolder: "Optional URL to open from the detail panel",
+      value: item.source.url ?? "",
+      validateInput: validateOptionalUriInput,
+    });
+    if (sourceUrl === undefined) {
+      return;
+    }
+
+    const sourcePath = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Source path",
+      placeHolder: "Optional workspace-relative or absolute path",
+      value: item.source.path ?? "",
+    });
+    if (sourcePath === undefined) {
+      return;
+    }
+
+    const updated = await this.store.updateWorkItem(itemId, {
+      priority: {
+        blockerReason,
+        deadline,
+        isBlocked,
+        level: priorityLevel,
+        score: Number(priorityScoreValue),
+      },
+      source: {
+        externalId: sourceExternalId,
+        kind: sourceKind,
+        path: sourcePath,
+        url: sourceUrl,
+      },
+    });
+
+    if (!updated) {
+      void vscode.window.showWarningMessage("That work item metadata could not be updated.");
+      return;
+    }
+
+    await this.refresh(`Updated metadata for "${updated.title}"`);
+  }
+
+  public async moveWorkItem(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const targetColumn = await promptForMoveColumn(item.column);
+    if (!targetColumn) {
+      return;
+    }
+
+    const moved = await this.store.moveItemToColumn(itemId, targetColumn, 0);
+    if (!moved) {
+      void vscode.window.showWarningMessage("That work item could not be moved.");
+      return;
+    }
+
+    await this.refresh(`Moved "${moved.title}" to ${labelForColumn(targetColumn)}`);
+  }
+
+  public async splitWorkItemFromPrompt(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const title = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: `Split "${item.title}" into a new work item`,
+      placeHolder: "Add the next focused sub-task",
+      validateInput: (value) => (value.trim().length > 0 ? null : "A title is required."),
+    });
+    if (!title) {
+      return;
+    }
+
+    const description = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Split item description",
+      placeHolder: "Leave blank to reuse the parent context",
+      value: "",
+    });
+    if (description === undefined) {
+      return;
+    }
+
+    const splitItem = await this.store.splitWorkItem(itemId, {
+      description,
+      title,
+    });
+    if (!splitItem) {
+      void vscode.window.showWarningMessage("That work item could not be split.");
+      return;
+    }
+
+    this.selectedItemId = splitItem.id;
+    await this.refresh(`Created split task "${splitItem.title}"`);
+  }
+
+  public async openWorkItemSource(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const sourceTarget = item.source.url?.trim() || item.source.path?.trim();
+    if (!sourceTarget) {
+      void vscode.window.showWarningMessage("This work item does not have a source URL or path to open.");
+      return;
+    }
+
+    if (item.source.url?.trim()) {
+      const sourceUri = vscode.Uri.parse(item.source.url);
+      if (!isAllowedSourceUri(sourceUri)) {
+        void vscode.window.showWarningMessage("Only http and https source URLs can be opened from Work Terminal.");
+        return;
+      }
+
+      const opened = await vscode.env.openExternal(sourceUri);
+      if (!opened) {
+        void vscode.window.showWarningMessage("That source URL could not be opened.");
+      }
+      return;
+    }
+
+    try {
+      const sourceUri = resolveSourcePath(item.source.path ?? "");
+      const document = await vscode.workspace.openTextDocument(sourceUri);
+      await vscode.window.showTextDocument(document, { preview: true });
+    } catch {
+      void vscode.window.showWarningMessage("That source path could not be opened.");
+    }
+  }
+
+  public async deleteWorkItemFromPrompt(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const activeSessionCount = this.terminalStore.getSummary().sessionCountByItemId[itemId] ?? 0;
+    if (activeSessionCount > 0) {
+      void vscode.window.showWarningMessage(
+        `Close the ${activeSessionCount} open session${activeSessionCount === 1 ? "" : "s"} for "${item.title}" before deleting it.`,
+      );
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Delete "${item.title}"? This removes the work item from the board.`,
+      { modal: true },
+      "Delete",
+    );
+    if (confirmation !== "Delete") {
+      return;
+    }
+
+    const deleted = await this.store.deleteWorkItem(itemId);
+    if (!deleted) {
+      void vscode.window.showWarningMessage("That work item could not be deleted.");
+      return;
+    }
+
+    if (this.selectedItemId === itemId) {
+      this.selectedItemId = null;
+    }
+    await this.refresh(`Deleted "${item.title}"`);
+  }
+
+  public async showMoreActionsForItem(itemId: string): Promise<void> {
+    const item = await this.getStoredWorkItemOrWarn(itemId);
+    if (!item) {
+      return;
+    }
+
+    const action = await promptForWorkItemAction(item);
+    switch (action) {
+      case "delete":
+        await this.deleteWorkItemFromPrompt(itemId);
+        return;
+      case "edit-details":
+        await this.editWorkItemDetails(itemId);
+        return;
+      case "edit-metadata":
+        await this.editWorkItemMetadata(itemId);
+        return;
+      case "move":
+        await this.moveWorkItem(itemId);
+        return;
+      case "open-source":
+        await this.openWorkItemSource(itemId);
+        return;
+      case "split":
+        await this.splitWorkItemFromPrompt(itemId);
+        return;
+      default:
+        return;
+    }
   }
 
   public async manageProfilesFromPrompt(): Promise<void> {
@@ -384,6 +743,16 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     );
     await this.refresh(status);
     void vscode.window.showInformationMessage(status);
+  }
+
+  private async getStoredWorkItemOrWarn(itemId: string): Promise<WorkItem | null> {
+    const item = await this.store.getWorkItem(itemId);
+    if (!item) {
+      void vscode.window.showWarningMessage("That work item no longer exists.");
+      return null;
+    }
+
+    return item;
   }
 }
 
@@ -569,4 +938,195 @@ function getConfigurationTarget(): vscode.ConfigurationTarget {
   return vscode.workspace.workspaceFolders?.length
     ? vscode.ConfigurationTarget.Workspace
     : vscode.ConfigurationTarget.Global;
+}
+
+async function promptForPriorityLevel(
+  currentLevel: WorkItemPriorityLevel,
+): Promise<WorkItemPriorityLevel | undefined> {
+  const selection = await vscode.window.showQuickPick(
+    [
+      { label: "None", value: "none" },
+      { label: "Low", value: "low" },
+      { label: "Medium", value: "medium" },
+      { label: "High", value: "high" },
+      { label: "Critical", value: "critical" },
+    ] as const,
+    {
+      ignoreFocusOut: true,
+      placeHolder: `Priority level - current ${currentLevel}`,
+    },
+  );
+
+  return selection?.value;
+}
+
+function validatePriorityScoreInput(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+    return "Use a number from 0 to 100.";
+  }
+
+  return null;
+}
+
+async function promptForBlockedState(currentValue: boolean): Promise<boolean | undefined> {
+  const selection = await vscode.window.showQuickPick(
+    [
+      { description: "No blocker metadata is shown", label: "Not blocked", value: false },
+      { description: "Shows blocker metadata in the detail panel", label: "Blocked", value: true },
+    ] as const,
+    {
+      ignoreFocusOut: true,
+      placeHolder: `Blocked state - current ${currentValue ? "blocked" : "not blocked"}`,
+    },
+  );
+
+  return selection?.value;
+}
+
+async function promptForSourceKind(currentKind: WorkItemSourceKind): Promise<WorkItemSourceKind | undefined> {
+  const selection = await vscode.window.showQuickPick(
+    [
+      { label: "Manual", value: "manual" },
+      { label: "Prompt", value: "prompt" },
+      { label: "Jira", value: "jira" },
+      { label: "Slack", value: "slack" },
+      { label: "Confluence", value: "confluence" },
+      { label: "Markdown", value: "markdown" },
+      { label: "Other", value: "other" },
+    ] as const,
+    {
+      ignoreFocusOut: true,
+      placeHolder: `Source kind - current ${currentKind}`,
+    },
+  );
+
+  return selection?.value;
+}
+
+async function promptForMoveColumn(currentColumn: WorkItemColumn): Promise<WorkItemColumn | undefined> {
+  const options = [
+    { description: "Move to the Priority column", label: "Priority", value: "priority" },
+    { description: "Move to the To Do column", label: "To Do", value: "todo" },
+    { description: "Move to the Active column", label: "Active", value: "active" },
+    { description: "Move to the Done column", label: "Done", value: "done" },
+  ] as const;
+  const selection = await vscode.window.showQuickPick(
+    options.filter((option) => option.value !== currentColumn),
+    {
+      ignoreFocusOut: true,
+      placeHolder: `Move work item from ${labelForColumn(currentColumn)}`,
+    },
+  );
+
+  return selection?.value;
+}
+
+type WorkItemAction = "delete" | "edit-details" | "edit-metadata" | "move" | "open-source" | "split";
+
+async function promptForWorkItemAction(item: WorkItem): Promise<WorkItemAction | undefined> {
+  const options = [
+    {
+      description: "Edit the title and description",
+      label: "Edit details",
+      value: "edit-details",
+    },
+    {
+      description: "Edit priority, blocker, deadline, and source metadata",
+      label: "Edit metadata",
+      value: "edit-metadata",
+    },
+    {
+      description: `Current column: ${labelForColumn(item.column)}`,
+      label: "Move item",
+      value: "move",
+    },
+    {
+      description: "Create a derived work item and keep the parent context",
+      label: "Split task",
+      value: "split",
+    },
+    {
+      description: item.source.url?.trim() || item.source.path?.trim()
+        ? item.source.url?.trim() ?? item.source.path?.trim() ?? ""
+        : "No source URL or path is set",
+      disabled: !(item.source.url?.trim() || item.source.path?.trim()),
+      label: "Open source",
+      value: "open-source",
+    },
+    {
+      description: "Remove the work item from the board",
+      label: "Delete item",
+      value: "delete",
+    },
+  ] as const;
+
+  const selection = await vscode.window.showQuickPick(
+    options
+      .filter((option) => !("disabled" in option && option.disabled))
+      .map((option) => ({
+        description: option.description,
+        label: option.label,
+        value: option.value,
+      })),
+    {
+      ignoreFocusOut: true,
+      placeHolder: `More actions for ${item.title}`,
+    },
+  );
+
+  return selection?.value;
+}
+
+function validateOptionalUriInput(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = vscode.Uri.parse(trimmed);
+    return isAllowedSourceUri(parsed) ? null : "Use an http or https URL, or leave blank.";
+  } catch {
+    return "Use an http or https URL, or leave blank.";
+  }
+}
+
+function labelForColumn(column: WorkItemColumn): string {
+  switch (column) {
+    case "priority":
+      return "Priority";
+    case "todo":
+      return "To Do";
+    case "active":
+      return "Active";
+    case "done":
+      return "Done";
+  }
+}
+
+function resolveSourcePath(pathValue: string): vscode.Uri {
+  if (isAbsolutePath(pathValue)) {
+    return vscode.Uri.file(pathValue);
+  }
+
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    throw new Error("No workspace is open.");
+  }
+
+  return vscode.Uri.joinPath(workspaceFolder.uri, pathValue);
+}
+
+function isAbsolutePath(value: string): boolean {
+  return value.startsWith("/") || /^[a-z]:[\\/]/iu.test(value);
+}
+
+function isAllowedSourceUri(uri: vscode.Uri): boolean {
+  return uri.scheme === "http" || uri.scheme === "https";
 }

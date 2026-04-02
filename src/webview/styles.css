@@ -264,6 +264,7 @@ select {
   align-items: center;
   gap: 8px;
   margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .session-list {
@@ -362,4 +363,86 @@ select {
 
 .profile-status.is-missing {
   color: var(--vscode-testing-iconFailed);
+}
+
+.detail-shell {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-title {
+  display: block;
+  font-size: 14px;
+}
+
+.detail-subtitle {
+  margin: 4px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.detail-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-tag {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.detail-tag-blocked {
+  color: var(--vscode-testing-iconFailed);
+  border-color: color-mix(in srgb, var(--vscode-testing-iconFailed) 40%, var(--vscode-panel-border));
+}
+
+.detail-tag-deadline {
+  color: var(--vscode-testing-iconQueued);
+}
+
+.detail-grid {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 110px) 1fr;
+  gap: 8px;
+  border-top: 1px solid var(--vscode-panel-border);
+  padding-top: 8px;
+}
+
+.detail-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.detail-row dt {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.detail-row dd {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.danger-button {
+  color: var(--vscode-errorForeground, var(--vscode-button-foreground));
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, var(--vscode-button-border, var(--vscode-panel-border))) 45%, var(--vscode-panel-border));
 }

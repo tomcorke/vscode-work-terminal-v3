@@ -42,8 +42,10 @@ export type {
   CreateWorkItemInput,
   PersistedWorkItemSnapshot,
   SnapshotValidationIssue,
+  SplitWorkItemInput,
   WorkItem,
   WorkItemId,
   WorkItemPriorityMetadata,
   WorkItemSourceMetadata,
+  UpdateWorkItemInput,
 } from "./types";

@@ -48,6 +48,22 @@ export interface CreateWorkItemInput {
   readonly now?: string | Date;
 }
 
+export interface UpdateWorkItemInput {
+  readonly title?: string;
+  readonly description?: string | null;
+  readonly state?: WorkItemState;
+  readonly source?: Partial<WorkItemSourceMetadata>;
+  readonly priority?: Partial<WorkItemPriorityMetadata>;
+  readonly now?: string | Date;
+}
+
+export interface SplitWorkItemInput {
+  readonly title: string;
+  readonly description?: string | null;
+  readonly state?: WorkItemState;
+  readonly now?: string | Date;
+}
+
 export interface PersistedWorkItemSnapshot {
   readonly version: typeof WORK_ITEM_SNAPSHOT_VERSION;
   readonly collapsedColumns: Record<WorkItemColumn, boolean>;

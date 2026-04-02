@@ -12,15 +12,26 @@ export interface WorkTerminalViewState {
   }>;
   readonly boardColumns: ReadonlyArray<{
     readonly id: string;
-    readonly items: ReadonlyArray<{
-      readonly description: string | null;
-      readonly id: string;
-      readonly isBlocked: boolean;
-      readonly priorityLevel: string;
-      readonly sourceKind: string;
-      readonly title: string;
-      readonly updatedAt: string;
-    }>;
+      readonly items: ReadonlyArray<{
+        readonly blockerReason: string | null;
+        readonly column: string;
+        readonly completedAt: string | null;
+        readonly createdAt: string;
+        readonly description: string | null;
+        readonly id: string;
+        readonly isBlocked: boolean;
+        readonly priorityDeadline: string | null;
+        readonly priorityLevel: string;
+        readonly priorityScore: number;
+        readonly sourceCapturedAt: string | null;
+        readonly sourceExternalId: string | null;
+        readonly sourceKind: string;
+        readonly sourcePath: string | null;
+        readonly sourceUrl: string | null;
+        readonly state: string;
+        readonly title: string;
+        readonly updatedAt: string;
+      }>;
     readonly label: string;
   }>;
   readonly collapsedColumns: Record<string, boolean>;
