@@ -45,6 +45,26 @@ export interface WorkTerminalViewState {
     readonly message: string;
     readonly profileId: string | null;
   }>;
+  readonly selectedItem: {
+    readonly blockerReason: string | null;
+    readonly column: string;
+    readonly completedAt: string | null;
+    readonly createdAt: string;
+    readonly description: string | null;
+    readonly id: string;
+    readonly isBlocked: boolean;
+    readonly priorityDeadline: string | null;
+    readonly priorityLevel: string;
+    readonly priorityScore: number;
+    readonly sourceCapturedAt: string | null;
+    readonly sourceExternalId: string | null;
+    readonly sourceKind: string;
+    readonly sourcePath: string | null;
+    readonly sourceUrl: string | null;
+    readonly state: string;
+    readonly title: string;
+    readonly updatedAt: string;
+  } | null;
   readonly selectedItemId: string | null;
   readonly recentlyClosedSessions: ReadonlyArray<{
     readonly closedAt: string;

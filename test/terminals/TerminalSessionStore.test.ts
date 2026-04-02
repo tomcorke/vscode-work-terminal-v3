@@ -191,6 +191,38 @@ describe("TerminalSessionStore", () => {
     store.dispose();
   });
 
+  it("uses the injected work item prompt builder for context-aware agent sessions", async () => {
+    configurationValues.claudeCommand = process.execPath;
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const promptBuilder = {
+      buildContextPrompt: vi.fn(() => "Adapter supplied prompt"),
+    };
+    const store = new TerminalSessionStore(workspaceRoot, promptBuilder);
+
+    const result = await store.createAgentSession({
+      cwd: "/workspace",
+      itemDescription: "Look into the regression",
+      itemId: "item-1",
+      itemTitle: "Investigate regression",
+      profileId: "claude-context",
+    });
+
+    expect(result.error).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(promptBuilder.buildContextPrompt).toHaveBeenCalledWith({
+      description: "Look into the regression",
+      title: "Investigate regression",
+    });
+    expect(createdTerminals[0].sendText).toHaveBeenCalledWith("Adapter supplied prompt", true);
+
+    store.dispose();
+  });
+
   it("does not send a delayed prompt after the terminal has already closed", async () => {
     configurationValues.claudeCommand = process.execPath;
 

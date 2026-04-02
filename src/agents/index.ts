@@ -1,6 +1,5 @@
 export {
   AGENT_KINDS,
-  buildWorkItemContextPrompt,
   getBuiltInAgentProfileById,
   getBuiltInAgentProfiles,
   getResumeBehaviorLabel,

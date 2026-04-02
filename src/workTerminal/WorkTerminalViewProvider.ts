@@ -13,9 +13,10 @@ import type { TerminalSessionStore } from "../terminals";
 import type {
   WorkItem,
   WorkItemColumn,
+  WorkItemColumnDefinition,
   WorkItemPriorityLevel,
   WorkItemSourceKind,
-  WorkItemStore,
+  WorkItemWorkflowStore,
 } from "../workItems";
 import { getNonce } from "./getNonce";
 import {
@@ -70,7 +71,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly disposables: vscode.Disposable[],
-    private readonly store: WorkItemStore,
+    private readonly store: WorkItemWorkflowStore,
     private readonly terminalStore: TerminalSessionStore,
   ) {
     this.disposables.push(
@@ -242,7 +243,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const state = await promptForState();
+    const state = await promptForState(this.store.getColumnDefinitions());
     if (!state) {
       return;
     }
@@ -415,7 +416,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const targetColumn = await promptForMoveColumn(item.column);
+    const targetColumn = await promptForMoveColumn(item.column, this.store.getColumnDefinitions());
     if (!targetColumn) {
       return;
     }
@@ -426,7 +427,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    await this.refresh(`Moved "${moved.title}" to ${labelForColumn(targetColumn)}`);
+    await this.refresh(`Moved "${moved.title}" to ${this.store.getColumnLabel(targetColumn)}`);
   }
 
   public async splitWorkItemFromPrompt(itemId: string): Promise<void> {
@@ -544,7 +545,7 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const action = await promptForWorkItemAction(item);
+    const action = await promptForWorkItemAction(item, this.store.getColumnDefinitions());
     switch (action) {
       case "delete":
         await this.deleteWorkItemFromPrompt(itemId);
@@ -704,12 +705,8 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async createViewState(status: string): Promise<WorkTerminalViewState> {
-    const summary = await this.store.getSummary();
-    const allItems = summary.boardColumns.flatMap((column) => column.items);
-    const resolvedSelectedItemId = allItems.some((item) => item.id === this.selectedItemId)
-      ? this.selectedItemId
-      : allItems[0]?.id ?? null;
-    this.selectedItemId = resolvedSelectedItemId;
+    const summary = await this.store.getSummary(this.selectedItemId);
+    this.selectedItemId = summary.selectedItemId;
     const terminalSummary = this.terminalStore.getSummary();
 
     return {
@@ -720,7 +717,8 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       latestWorkItemTitle: summary.latestWorkItemTitle,
       profileIssues: terminalSummary.profileIssues,
       recentlyClosedSessions: terminalSummary.recentlyClosedSessions,
-      selectedItemId: resolvedSelectedItemId,
+      selectedItem: summary.selectedItem,
+      selectedItemId: summary.selectedItemId,
       status,
       storagePath: summary.storagePath,
       terminalSessionCountByItemId: terminalSummary.sessionCountByItemId,
@@ -756,20 +754,20 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   }
 }
 
-async function promptForState(): Promise<"priority" | "todo" | "active" | "done" | undefined> {
-  const choices = [
-    { label: "To Do", state: "todo" },
-    { label: "Active", state: "active" },
-    { label: "Priority", state: "priority" },
-    { label: "Done", state: "done" },
-  ] as const;
+async function promptForState(
+  columnDefinitions: readonly WorkItemColumnDefinition[],
+): Promise<"priority" | "todo" | "active" | "done" | undefined> {
+  const choices = columnDefinitions.map((columnDefinition) => ({
+    label: columnDefinition.label,
+    state: columnDefinition.id,
+  }));
 
   const selection = await vscode.window.showQuickPick(choices, {
     ignoreFocusOut: true,
     placeHolder: "Choose the initial state",
   });
 
-  return selection?.state;
+  return selection?.state as "priority" | "todo" | "active" | "done" | undefined;
 }
 
 async function promptForProfileAction(): Promise<"create" | "delete" | "edit" | "move-down" | "move-up" | "reset" | undefined> {
@@ -1009,18 +1007,20 @@ async function promptForSourceKind(currentKind: WorkItemSourceKind): Promise<Wor
   return selection?.value;
 }
 
-async function promptForMoveColumn(currentColumn: WorkItemColumn): Promise<WorkItemColumn | undefined> {
-  const options = [
-    { description: "Move to the Priority column", label: "Priority", value: "priority" },
-    { description: "Move to the To Do column", label: "To Do", value: "todo" },
-    { description: "Move to the Active column", label: "Active", value: "active" },
-    { description: "Move to the Done column", label: "Done", value: "done" },
-  ] as const;
+async function promptForMoveColumn(
+  currentColumn: WorkItemColumn,
+  columnDefinitions: readonly WorkItemColumnDefinition[],
+): Promise<WorkItemColumn | undefined> {
+  const options = columnDefinitions.map((columnDefinition) => ({
+    description: `Move to the ${columnDefinition.label} column`,
+    label: columnDefinition.label,
+    value: columnDefinition.id,
+  }));
   const selection = await vscode.window.showQuickPick(
     options.filter((option) => option.value !== currentColumn),
     {
       ignoreFocusOut: true,
-      placeHolder: `Move work item from ${labelForColumn(currentColumn)}`,
+      placeHolder: `Move work item from ${labelForColumn(currentColumn, columnDefinitions)}`,
     },
   );
 
@@ -1029,7 +1029,10 @@ async function promptForMoveColumn(currentColumn: WorkItemColumn): Promise<WorkI
 
 type WorkItemAction = "delete" | "edit-details" | "edit-metadata" | "move" | "open-source" | "split";
 
-async function promptForWorkItemAction(item: WorkItem): Promise<WorkItemAction | undefined> {
+async function promptForWorkItemAction(
+  item: WorkItem,
+  columnDefinitions: readonly WorkItemColumnDefinition[],
+): Promise<WorkItemAction | undefined> {
   const options = [
     {
       description: "Edit the title and description",
@@ -1042,7 +1045,7 @@ async function promptForWorkItemAction(item: WorkItem): Promise<WorkItemAction |
       value: "edit-metadata",
     },
     {
-      description: `Current column: ${labelForColumn(item.column)}`,
+      description: `Current column: ${labelForColumn(item.column, columnDefinitions)}`,
       label: "Move item",
       value: "move",
     },
@@ -1097,17 +1100,8 @@ function validateOptionalUriInput(value: string): string | null {
   }
 }
 
-function labelForColumn(column: WorkItemColumn): string {
-  switch (column) {
-    case "priority":
-      return "Priority";
-    case "todo":
-      return "To Do";
-    case "active":
-      return "Active";
-    case "done":
-      return "Done";
-  }
+function labelForColumn(column: WorkItemColumn, columnDefinitions: readonly WorkItemColumnDefinition[]): string {
+  return columnDefinitions.find((columnDefinition) => columnDefinition.id === column)?.label ?? column;
 }
 
 function resolveSourcePath(pathValue: string): vscode.Uri {

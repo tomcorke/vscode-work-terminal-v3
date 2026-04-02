@@ -121,18 +121,3 @@ export function getResumeBehaviorLabel(profile: Pick<AgentProfile, "kind" | "use
         : "Launches the configured agent command.";
   }
 }
-
-export function buildWorkItemContextPrompt(itemTitle: string, itemDescription: string | null): string {
-  const lines = [
-    "Work item context:",
-    `- Title: ${itemTitle}`,
-  ];
-
-  if (itemDescription?.trim()) {
-    lines.push(`- Description: ${itemDescription.trim()}`);
-  }
-
-  lines.push("", "Start by confirming the task understanding and proposing the next concrete step.");
-
-  return lines.join("\n");
-}
