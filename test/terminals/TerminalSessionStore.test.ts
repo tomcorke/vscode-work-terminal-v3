@@ -341,9 +341,11 @@ describe("TerminalSessionStore", () => {
 
     closeListeners[0]?.(createdTerminals[0]);
     await waitForPersistedSessionCount(store, 0);
-    expect(onChange).toHaveBeenCalledTimes(2);
-    expect(store.getSummary().sessions).toHaveLength(0);
-    expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(store.getSummary().sessions).toHaveLength(0);
+      expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
+    });
 
     disposable.dispose();
     store.dispose();

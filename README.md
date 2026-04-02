@@ -142,7 +142,7 @@ The extension-host side owns VS Code API integration, persistence, terminal life
 - `src/agents/AgentProfile.ts` - defines the built-in Claude, Copilot, and Strands defaults
 - `src/agents/AgentProfileConfiguration.ts` - loads profile settings, validates custom profiles, and serializes profile edits
 
-The built-in adapter keeps the current `.work-terminal/work-items.v1.json` behavior as the default source. The extension-host framework now depends on adapter interfaces for snapshot parsing, board rendering, selected-item detail resolution, column movement, context prompting, and source configuration so future task-file-backed adapters can slot in without reworking the board or terminal layers.
+The built-in adapter keeps the current `.work-terminal/work-items.v1.json` behavior as the default source. The extension-host framework now depends on adapter interfaces for snapshot parsing, board rendering, selected-item detail resolution, column movement, context prompting, and source configuration. Today that boundary is still snapshot-backed, but it is shaped so future task-file-backed adapters can map their own semantics into the framework without rewriting the board or terminal layers.
 
 ### Webview
 

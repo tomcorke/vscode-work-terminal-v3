@@ -15,12 +15,36 @@ vi.mock("vscode", () => {
     }
   }
 
+  class EventEmitter<T> {
+    private readonly listeners = new Set<(value: T) => void>();
+
+    public get event(): (listener: (value: T) => void) => Disposable {
+      return (listener) => {
+        this.listeners.add(listener);
+        return new Disposable(() => {
+          this.listeners.delete(listener);
+        });
+      };
+    }
+
+    public fire(value: T): void {
+      for (const listener of this.listeners) {
+        listener(value);
+      }
+    }
+
+    public dispose(): void {
+      this.listeners.clear();
+    }
+  }
+
   return {
     ConfigurationTarget: {
       Global: 1,
       Workspace: 2,
     },
     Disposable,
+    EventEmitter,
     Uri: {
       joinPath: (...segments: Array<{ readonly path?: string } | string>) => ({
         path: segments.map((segment) => typeof segment === "string" ? segment : segment.path ?? "").join("/"),
@@ -29,7 +53,20 @@ vi.mock("vscode", () => {
         },
       }),
     },
-    window: {},
+    window: {
+      createTerminal: vi.fn((options: { readonly name?: string } | undefined) => ({
+        dispose: vi.fn(),
+        name: options?.name ?? "Terminal",
+        sendText: vi.fn(),
+        show: vi.fn(),
+        state: {
+          isInteractedWith: false,
+        },
+      })),
+      onDidChangeTerminalState: vi.fn(() => new Disposable(() => {})),
+      onDidCloseTerminal: vi.fn(() => new Disposable(() => {})),
+      terminals: [],
+    },
     workspace: {
       getConfiguration,
       name: "Demo workspace",
