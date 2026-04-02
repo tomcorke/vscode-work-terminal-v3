@@ -72,8 +72,16 @@ describe("AgentProfileConfiguration", () => {
 
     expect(catalog.profiles.map((profile) => profile.id)).toEqual(["dup"]);
     expect(catalog.issues).toEqual([
-      expect.objectContaining({ message: expect.stringContaining("must include a non-empty command"), profileId: "broken" }),
-      expect.objectContaining({ message: expect.stringContaining("duplicated"), profileId: "dup" }),
+      expect.objectContaining({
+        message: expect.stringContaining("must include a non-empty command"),
+        profileId: "broken",
+        settingPath: "workTerminal.agentProfiles[0].command",
+      }),
+      expect.objectContaining({
+        message: expect.stringContaining("duplicated"),
+        profileId: "dup",
+        settingPath: "workTerminal.agentProfiles[2].id",
+      }),
     ]);
   });
 
@@ -87,6 +95,7 @@ describe("AgentProfileConfiguration", () => {
         kind: "custom",
         label: "Team agent",
         usesContext: true,
+        workingDirectory: "./agents",
       },
     ];
 
@@ -98,7 +107,35 @@ describe("AgentProfileConfiguration", () => {
         kind: "custom",
         label: "Team agent",
         usesContext: true,
+        workingDirectory: "./agents",
       },
+    ]);
+  });
+
+  it("reports invalid workingDirectory values with a settings path", () => {
+    const catalog = loadAgentProfileCatalog({
+      get<T>(section: string, defaultValue?: T): T {
+        if (section === "agentProfiles") {
+          return [{
+            command: "custom",
+            id: "broken-dir",
+            kind: "custom",
+            label: "Broken directory",
+            workingDirectory: 123,
+          }] as T;
+        }
+
+        return defaultValue as T;
+      },
+    });
+
+    expect(catalog.profiles).toEqual([]);
+    expect(catalog.issues).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("workingDirectory"),
+        profileId: "broken-dir",
+        settingPath: "workTerminal.agentProfiles[0].workingDirectory",
+      }),
     ]);
   });
 });

@@ -10,17 +10,20 @@ export interface AgentProfile {
   readonly kind: AgentKind;
   readonly label: string;
   readonly usesContext: boolean;
+  readonly workingDirectory?: string;
 }
 
-export interface AgentProfileIssue {
+export interface ConfigurationIssue {
   readonly message: string;
   readonly profileId: AgentProfileId | null;
+  readonly settingPath: string;
 }
 
 export interface AgentProfileSummary extends AgentProfile {
   readonly resumeBehaviorLabel: string;
   readonly status: "invalid-configuration" | "missing-command" | "ready";
   readonly statusLabel: string;
+  readonly workingDirectoryLabel: string;
 }
 
 export interface SerializedAgentProfile {
@@ -30,6 +33,7 @@ export interface SerializedAgentProfile {
   readonly kind: AgentKind;
   readonly label: string;
   readonly usesContext?: boolean;
+  readonly workingDirectory?: string;
 }
 
 const BUILT_IN_AGENT_PROFILES: readonly AgentProfile[] = [

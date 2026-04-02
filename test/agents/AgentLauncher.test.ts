@@ -5,6 +5,7 @@ import {
   getAgentProfileSummaries,
   getBuiltInAgentProfiles,
   splitConfiguredCommand,
+  validateConfiguredCommand,
 } from "../../src/agents";
 
 describe("AgentLauncher", () => {
@@ -44,13 +45,13 @@ describe("AgentLauncher", () => {
       contextPrompt: "Work item context",
       profile: {
         ...profile!,
-        command: "strands chat",
+        command: `${process.execPath} ./scripts/strands.js`,
         extraArgs: "--model fast",
       },
     });
 
-    expect(plan.executable).toBe("strands");
-    expect(plan.args).toEqual(["chat", "--model", "fast"]);
+    expect(plan.executable).toBe(process.execPath);
+    expect(plan.args).toEqual(["./scripts/strands.js", "--model", "fast"]);
     expect(plan.initialPrompt).toBe("Work item context");
     expect(plan.sessionId).toBeNull();
   });
@@ -88,5 +89,30 @@ describe("AgentLauncher", () => {
       status: "invalid-configuration",
       statusLabel: expect.stringContaining("Invalid configuration"),
     }));
+  });
+
+  it("surfaces unmatched quotes in configured commands", () => {
+    expect(validateConfiguredCommand('claude "unterminated')).toEqual(expect.objectContaining({
+      status: "invalid-configuration",
+      statusLabel: expect.stringContaining("unmatched double quote"),
+    }));
+  });
+
+  it("includes working-directory labels in summaries", () => {
+    const summaries = getAgentProfileSummaries([
+      {
+        builtIn: false,
+        command: process.execPath,
+        extraArgs: "",
+        id: "cwd-agent",
+        kind: "custom",
+        label: "CWD agent",
+        usesContext: false,
+      },
+    ], {
+      getWorkingDirectoryLabel: () => "Resolved - /workspace/agents",
+    });
+
+    expect(summaries[0]?.workingDirectoryLabel).toBe("Resolved - /workspace/agents");
   });
 });

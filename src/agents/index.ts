@@ -1,5 +1,6 @@
 export {
   AGENT_KINDS,
+  type ConfigurationIssue,
   getBuiltInAgentProfileById,
   getBuiltInAgentProfiles,
   getResumeBehaviorLabel,
@@ -7,7 +8,6 @@ export {
   type AgentKind,
   type AgentProfile,
   type AgentProfileId,
-  type AgentProfileIssue,
   type AgentProfileSummary,
   type SerializedAgentProfile,
 } from "./AgentProfile";
@@ -21,6 +21,8 @@ export {
 export {
   buildAgentLaunchPlan,
   getAgentProfileSummaries,
+  validateConfiguredCommand,
+  type ValidatedConfiguredCommand,
   splitConfiguredCommand,
   type AgentLaunchPlan,
 } from "./AgentLauncher";

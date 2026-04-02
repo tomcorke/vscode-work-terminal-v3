@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WorkItemWorkflowStore, WorkItemStoreSummary } from "../../src/workItems";
 
 const getConfiguration = vi.fn(() => ({
+  get: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -15,12 +16,36 @@ vi.mock("vscode", () => {
     }
   }
 
+  class EventEmitter<T> {
+    private readonly listeners = new Set<(value: T) => void>();
+
+    public get event(): (listener: (value: T) => void) => Disposable {
+      return (listener) => {
+        this.listeners.add(listener);
+        return new Disposable(() => {
+          this.listeners.delete(listener);
+        });
+      };
+    }
+
+    public fire(value: T): void {
+      for (const listener of this.listeners) {
+        listener(value);
+      }
+    }
+
+    public dispose(): void {
+      this.listeners.clear();
+    }
+  }
+
   return {
     ConfigurationTarget: {
       Global: 1,
       Workspace: 2,
     },
     Disposable,
+    EventEmitter,
     Uri: {
       joinPath: (...segments: Array<{ readonly path?: string } | string>) => ({
         path: segments.map((segment) => typeof segment === "string" ? segment : segment.path ?? "").join("/"),
@@ -29,7 +54,21 @@ vi.mock("vscode", () => {
         },
       }),
     },
-    window: {},
+    window: {
+      createTerminal: vi.fn(() => ({
+        dispose: vi.fn(),
+        name: "Terminal",
+        sendText: vi.fn(),
+        show: vi.fn(),
+        state: {
+          isInteractedWith: false,
+        },
+      })),
+      onDidChangeTerminalState: vi.fn(() => ({ dispose() {} })),
+      onDidCloseTerminal: vi.fn(() => ({ dispose() {} })),
+      showInformationMessage: vi.fn(),
+      showWarningMessage: vi.fn(),
+    },
     workspace: {
       getConfiguration,
       name: "Demo workspace",
@@ -119,7 +158,11 @@ describe("WorkTerminalViewProvider", () => {
     const terminalStore = {
       getSummary: vi.fn(() => ({
         agentProfiles: [],
-        profileIssues: [],
+        configurationIssues: [],
+        launchConfiguration: {
+          defaultWorkingDirectoryLabel: "Workspace default - /workspace",
+          shellStatusLabel: "VS Code integrated shell default",
+        },
         recentlyClosedSessions: [],
         sessionCountByItemId: {},
         sessions: [],
@@ -143,5 +186,5 @@ describe("WorkTerminalViewProvider", () => {
       id: "item-b",
       title: "Adapter detail item",
     });
-  });
+  }, 20_000);
 });

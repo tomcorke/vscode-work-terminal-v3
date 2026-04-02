@@ -19,6 +19,7 @@
   ],
   "activationEvents": [
     "onCommand:workTerminal.focus",
+    "onCommand:workTerminal.openSettings",
     "onView:workTerminal.view"
   ],
   "main": "./dist/extension.js",
@@ -39,6 +40,10 @@
       {
         "command": "workTerminal.manageProfiles",
         "title": "Work Terminal: Manage Profiles"
+      },
+      {
+        "command": "workTerminal.openSettings",
+        "title": "Work Terminal: Open Settings"
       }
     ],
     "viewsContainers": {
@@ -64,36 +69,51 @@
         "workTerminal.claudeCommand": {
           "type": "string",
           "default": "claude",
-          "description": "Command used to launch Claude sessions."
+          "description": "Legacy Claude launch command used when workTerminal.agentProfiles is unset."
         },
         "workTerminal.claudeExtraArgs": {
           "type": "string",
           "default": "",
-          "description": "Extra arguments appended when launching Claude sessions."
+          "description": "Legacy Claude extra arguments used when workTerminal.agentProfiles is unset."
         },
         "workTerminal.copilotCommand": {
           "type": "string",
           "default": "copilot",
-          "description": "Command used to launch Copilot sessions."
+          "description": "Legacy Copilot launch command used when workTerminal.agentProfiles is unset."
         },
         "workTerminal.copilotExtraArgs": {
           "type": "string",
           "default": "",
-          "description": "Extra arguments appended when launching Copilot sessions."
+          "description": "Legacy Copilot extra arguments used when workTerminal.agentProfiles is unset."
         },
         "workTerminal.strandsCommand": {
           "type": "string",
           "default": "strands",
-          "description": "Command used to launch Strands sessions."
+          "description": "Legacy Strands launch command used when workTerminal.agentProfiles is unset."
         },
         "workTerminal.strandsExtraArgs": {
           "type": "string",
           "default": "",
-          "description": "Extra arguments appended when launching Strands sessions."
+          "description": "Legacy Strands extra arguments used when workTerminal.agentProfiles is unset."
+        },
+        "workTerminal.defaultWorkingDirectory": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional default working directory for shell sessions and agent profiles without an override. Use an absolute path or a workspace-relative path. Leave blank to use the first workspace folder."
+        },
+        "workTerminal.shellCommand": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional shell command for `Open shell session`. Leave blank to keep using VS Code's integrated shell profile. Multi-token commands are supported."
+        },
+        "workTerminal.shellExtraArgs": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional extra arguments appended after `workTerminal.shellCommand` when opening shell sessions."
         },
         "workTerminal.agentProfiles": {
           "type": "array",
-          "markdownDescription": "Optional full profile configuration. When unset, Work Terminal derives the built-in Claude, Copilot, and Strands profiles from the legacy command settings. Use the `Work Terminal: Manage Profiles` command or edit this setting directly for custom profiles and ordering.",
+          "markdownDescription": "Optional full profile configuration. When unset, Work Terminal derives the built-in Claude, Copilot, and Strands profiles from the legacy command settings. Use `Work Terminal: Manage Profiles` for ordered and custom profile edits, and use VS Code Settings for shell and default working-directory behavior.",
           "items": {
             "type": "object",
             "required": [
@@ -123,7 +143,7 @@
               },
               "command": {
                 "type": "string",
-                "description": "Command used to launch the profile. Multi-token commands are supported."
+                "description": "Command used to launch the profile. Multi-token commands are supported and validated before launch."
               },
               "extraArgs": {
                 "type": "string",
@@ -134,6 +154,10 @@
                 "type": "boolean",
                 "default": false,
                 "description": "When true, Work Terminal sends the work item context prompt after launch."
+              },
+              "workingDirectory": {
+                "type": "string",
+                "description": "Optional absolute or workspace-relative working directory override for this profile. Leave unset to use workTerminal.defaultWorkingDirectory or the workspace folder."
               }
             }
           }

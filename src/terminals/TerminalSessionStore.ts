@@ -2,16 +2,21 @@ import * as vscode from "vscode";
 
 import {
   buildAgentLaunchPlan,
+  type ConfigurationIssue,
   getAgentProfileSummaries,
   loadAgentProfileCatalog,
   type AgentProfileId,
-  type AgentProfileIssue,
   type AgentProfileSummary,
 } from "../agents";
 import {
   createBuiltInJsonWorkItemSourceAdapter,
   type WorkItemSourcePromptBuilder,
 } from "../workItems";
+import {
+  loadTerminalLaunchConfiguration,
+  resolveAgentProfileWorkingDirectory,
+  type TerminalLaunchConfigurationSummary,
+} from "./TerminalLaunchConfiguration";
 import {
   type RecentlyClosedTerminalSession,
   TerminalSessionPersistence,
@@ -42,7 +47,11 @@ export interface TerminalSessionSummary {
 
 export interface TerminalStoreSummary {
   readonly agentProfiles: readonly AgentProfileSummary[];
-  readonly profileIssues: readonly AgentProfileIssue[];
+  readonly configurationIssues: readonly ConfigurationIssue[];
+  readonly launchConfiguration: {
+    readonly defaultWorkingDirectoryLabel: string;
+    readonly shellStatusLabel: string;
+  };
   readonly recentlyClosedSessions: readonly RecentlyClosedTerminalSession[];
   readonly sessionCountByItemId: Record<string, number>;
   readonly sessions: readonly TerminalSessionSummary[];
@@ -71,7 +80,7 @@ export class TerminalSessionStore implements vscode.Disposable {
   private readonly terminalStateDisposable: vscode.Disposable;
 
   public constructor(
-    workspaceRootPath: string | null,
+    private readonly workspaceRootPath: string | null,
     promptBuilder: WorkItemSourcePromptBuilder = createBuiltInJsonWorkItemSourceAdapter().promptBuilder,
   ) {
     this.persistence = new TerminalSessionPersistence(workspaceRootPath);
@@ -106,17 +115,42 @@ export class TerminalSessionStore implements vscode.Disposable {
       readonly persist?: boolean;
       readonly reveal?: boolean;
     } = {},
-  ): Promise<TerminalSessionSummary> {
+  ): Promise<{ readonly error: string | null; readonly session: TerminalSessionSummary | null }> {
+    const launchConfiguration = this.loadLaunchConfiguration();
+    const resolvedCwd = cwd ?? launchConfiguration.defaultWorkingDirectory;
+    if (!cwd && launchConfiguration.issues.some((issue) => issue.settingPath === "workTerminal.defaultWorkingDirectory")) {
+      return {
+        error: buildConfigurationErrorMessage(
+          "Shell sessions cannot start until the default working directory is fixed.",
+          launchConfiguration,
+          ["workTerminal.defaultWorkingDirectory"],
+        ),
+        session: null,
+      };
+    }
+    if (launchConfiguration.shellCommand && !launchConfiguration.shellExecutable) {
+      return {
+        error: buildConfigurationErrorMessage(
+          "Shell sessions cannot start until the configured shell command is fixed.",
+          launchConfiguration,
+          ["workTerminal.shellCommand", "workTerminal.shellExtraArgs"],
+        ),
+        session: null,
+      };
+    }
+
     const id = options.existingId ?? crypto.randomUUID();
     const label = `${itemTitle} - Shell`;
     const terminal = vscode.window.createTerminal({
-      cwd,
+      cwd: resolvedCwd,
       name: label,
+      shellArgs: launchConfiguration.shellCommand ? [...launchConfiguration.shellArgs] : undefined,
+      shellPath: launchConfiguration.shellExecutable,
     });
     const summary: TerminalSessionSummary = {
       activityState: null,
       activityStateLabel: null,
-      command: null,
+      command: launchConfiguration.shellCommand,
       id,
       itemDescription,
       itemId,
@@ -126,12 +160,12 @@ export class TerminalSessionStore implements vscode.Disposable {
       profileId: null,
       profileLabel: null,
       resumeSessionId: null,
-      statusLabel: "Local shell session",
+      statusLabel: launchConfiguration.shellStatusLabel,
     };
 
     const persisted: PersistedTerminalSession = {
-      command: null,
-      cwd: cwd ?? null,
+      command: launchConfiguration.shellCommand,
+      cwd: resolvedCwd ?? null,
       id,
       itemDescription,
       itemId,
@@ -164,7 +198,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       terminal.show(true);
     }
 
-    return summary;
+    return { error: null, session: summary };
   }
 
   public async createAgentSession(
@@ -185,7 +219,9 @@ export class TerminalSessionStore implements vscode.Disposable {
       readonly skipInitialPrompt?: boolean;
     } = {},
   ): Promise<{ readonly error: string | null; readonly session: TerminalSessionSummary | null }> {
-    const catalog = loadAgentProfileCatalog(vscode.workspace.getConfiguration("workTerminal"));
+    const configuration = vscode.workspace.getConfiguration("workTerminal");
+    const catalog = loadAgentProfileCatalog(configuration);
+    const launchConfiguration = this.loadLaunchConfiguration(configuration);
     const profile = catalog.profiles.find((candidate) => candidate.id === options.profileId);
 
     if (!profile) {
@@ -195,10 +231,40 @@ export class TerminalSessionStore implements vscode.Disposable {
       };
     }
 
-    const profileSummary = getAgentProfileSummaries(catalog.profiles).find((summary) => summary.id === options.profileId);
+    const profileSummary = getAgentProfileSummaries(catalog.profiles, {
+      getWorkingDirectoryLabel: (candidate) => {
+        return resolveAgentProfileWorkingDirectory(
+          candidate,
+          this.workspaceRootPath,
+          launchConfiguration.defaultWorkingDirectory,
+        ).label;
+      },
+      getWorkingDirectoryStatus: (candidate) => {
+        const resolvedWorkingDirectory = resolveAgentProfileWorkingDirectory(
+          candidate,
+          this.workspaceRootPath,
+          launchConfiguration.defaultWorkingDirectory,
+        );
+        return resolvedWorkingDirectory.error
+          ? {
+            status: "invalid-configuration" as const,
+            statusLabel: resolvedWorkingDirectory.error.message,
+          }
+          : { status: "ready" as const, statusLabel: "" };
+      },
+    }).find((summary) => summary.id === options.profileId);
     if (!profileSummary || profileSummary.status !== "ready") {
       return {
         error: `${profile.label} is not available. ${profileSummary?.statusLabel ?? "Check the profile configuration in Manage Profiles or settings."}`,
+        session: null,
+      };
+    }
+    const resolvedWorkingDirectory = options.cwd
+      ? { error: null, label: `Restored - ${options.cwd}`, path: options.cwd }
+      : resolveAgentProfileWorkingDirectory(profile, this.workspaceRootPath, launchConfiguration.defaultWorkingDirectory);
+    if (!resolvedWorkingDirectory.path) {
+      return {
+        error: `Unable to launch ${profile.label}. ${resolvedWorkingDirectory.error?.message ?? "Check the working directory configuration."}`,
         session: null,
       };
     }
@@ -224,7 +290,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     const id = createOptions.existingId ?? crypto.randomUUID();
     const label = createOptions.existingLabel?.trim() || `${options.itemTitle} - ${profile.label}`;
     const terminal = vscode.window.createTerminal({
-      cwd: options.cwd,
+      cwd: resolvedWorkingDirectory.path,
       name: label,
       shellArgs: [...launchPlan.args],
       shellPath: launchPlan.executable,
@@ -252,7 +318,7 @@ export class TerminalSessionStore implements vscode.Disposable {
 
     const persisted: PersistedTerminalSession = {
       command: summary.command,
-      cwd: options.cwd ?? null,
+      cwd: resolvedWorkingDirectory.path ?? null,
       id,
       itemDescription: options.itemDescription,
       itemId: options.itemId,
@@ -338,7 +404,7 @@ export class TerminalSessionStore implements vscode.Disposable {
       }
 
       if (session.kind === "shell") {
-        await this.createShellSession(
+        const result = await this.createShellSession(
           session.itemId,
           session.itemTitle,
           session.itemDescription,
@@ -348,7 +414,11 @@ export class TerminalSessionStore implements vscode.Disposable {
             reveal: false,
           },
         );
-        restoredCount += 1;
+        if (result.session) {
+          restoredCount += 1;
+        } else {
+          skippedCount += 1;
+        }
         continue;
       }
 
@@ -405,11 +475,42 @@ export class TerminalSessionStore implements vscode.Disposable {
       sessionCountByItemId[session.itemId] = (sessionCountByItemId[session.itemId] ?? 0) + 1;
     }
 
-    const catalog = loadAgentProfileCatalog(vscode.workspace.getConfiguration("workTerminal"));
+    const configuration = vscode.workspace.getConfiguration("workTerminal");
+    const catalog = loadAgentProfileCatalog(configuration);
+    const launchConfiguration = this.loadLaunchConfiguration(configuration);
+    const agentProfiles = getAgentProfileSummaries(catalog.profiles, {
+      getWorkingDirectoryLabel: (profile) => {
+        return resolveAgentProfileWorkingDirectory(
+          profile,
+          this.workspaceRootPath,
+          launchConfiguration.defaultWorkingDirectory,
+        ).label;
+      },
+      getWorkingDirectoryStatus: (profile) => {
+        const resolvedWorkingDirectory = resolveAgentProfileWorkingDirectory(
+          profile,
+          this.workspaceRootPath,
+          launchConfiguration.defaultWorkingDirectory,
+        );
+        return resolvedWorkingDirectory.error
+          ? {
+            status: "invalid-configuration" as const,
+            statusLabel: resolvedWorkingDirectory.error.message,
+          }
+          : { status: "ready" as const, statusLabel: "" };
+      },
+    });
 
     return {
-      agentProfiles: getAgentProfileSummaries(catalog.profiles),
-      profileIssues: catalog.issues,
+      agentProfiles,
+      configurationIssues: [
+        ...catalog.issues,
+        ...launchConfiguration.issues,
+      ],
+      launchConfiguration: {
+        defaultWorkingDirectoryLabel: launchConfiguration.defaultWorkingDirectoryLabel,
+        shellStatusLabel: launchConfiguration.shellStatusLabel,
+      },
       recentlyClosedSessions: this.recentlyClosedSessions,
       sessionCountByItemId,
       sessions,
@@ -429,7 +530,7 @@ export class TerminalSessionStore implements vscode.Disposable {
     }
 
     if (recentlyClosed.kind === "shell") {
-      const session = await this.createShellSession(
+      const result = await this.createShellSession(
         recentlyClosed.itemId,
         recentlyClosed.itemTitle,
         recentlyClosed.itemDescription,
@@ -439,9 +540,12 @@ export class TerminalSessionStore implements vscode.Disposable {
           existingId: recentlyClosed.id,
         },
       );
+      if (!result.session) {
+        return result;
+      }
       await this.removeRecentlyClosedSession(id);
       this.sessionsChangedEmitter.fire();
-      return { error: null, session };
+      return result;
     }
 
     if (!recentlyClosed.profileId) {
@@ -494,9 +598,16 @@ export class TerminalSessionStore implements vscode.Disposable {
         continue;
       }
 
+      const observedLabel = terminal.name.trim();
+      const persistedSession = observedLabel
+        ? {
+            ...session.persisted,
+            label: observedLabel,
+          }
+        : session.persisted;
       this.clearPendingInitialPrompt(id);
       this.sessionsById.delete(id);
-      await this.recordClosedSession(session.persisted);
+      await this.recordClosedSession(persistedSession);
       this.sessionsChangedEmitter.fire();
       return;
     }
@@ -595,6 +706,12 @@ export class TerminalSessionStore implements vscode.Disposable {
         error,
       );
     }
+  }
+
+  private loadLaunchConfiguration(
+    configuration: vscode.WorkspaceConfiguration = vscode.workspace.getConfiguration("workTerminal"),
+  ): TerminalLaunchConfigurationSummary {
+    return loadTerminalLaunchConfiguration(configuration, this.workspaceRootPath);
   }
 
   private async refreshSessionTracking(): Promise<void> {
@@ -738,6 +855,19 @@ function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
       "code" in error &&
       (error as NodeJS.ErrnoException).code === "ENOENT",
   );
+}
+
+function buildConfigurationErrorMessage(
+  prefix: string,
+  launchConfiguration: TerminalLaunchConfigurationSummary,
+  relevantSettings: readonly string[],
+): string {
+  const matchingIssue = launchConfiguration.issues.find((issue) => relevantSettings.includes(issue.settingPath));
+  if (!matchingIssue) {
+    return prefix;
+  }
+
+  return `${prefix} ${matchingIssue.message} (${matchingIssue.settingPath})`;
 }
 
 function deriveAgentActivityState(session: StoredTerminalSession, now: number): AgentActivityState {
