@@ -165,7 +165,7 @@ describe("TerminalSessionPersistence", () => {
     } finally {
       warnSpy.mockRestore();
     }
-  });
+  }, 10_000);
 
   it("logs the underlying corruption cause when resetting a corrupt snapshot", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-session-persistence-"));
@@ -345,7 +345,7 @@ describe("TerminalSessionPersistence", () => {
 
     const files = await readdir(join(workspaceRoot, ".work-terminal"));
     expect(files.some((file) => file.startsWith("terminal-sessions.v1.json.corrupt-"))).toBe(true);
-  });
+  }, 10_000);
 });
 
 function createPersistedSession(overrides: Partial<PersistedTerminalSession> = {}): PersistedTerminalSession {

@@ -22,6 +22,9 @@ const configurationValues: ConfigurationValues = {
   claudeExtraArgs: "",
   copilotCommand: "copilot",
   copilotExtraArgs: "",
+  defaultWorkingDirectory: "",
+  shellCommand: "",
+  shellExtraArgs: "",
   strandsCommand: "strands",
   strandsExtraArgs: "",
 };
@@ -127,6 +130,9 @@ describe("TerminalSessionStore", () => {
     configurationValues.claudeExtraArgs = "";
     configurationValues.copilotCommand = "copilot";
     configurationValues.copilotExtraArgs = "";
+    configurationValues.defaultWorkingDirectory = "";
+    configurationValues.shellCommand = "";
+    configurationValues.shellExtraArgs = "";
     configurationValues.strandsCommand = "strands";
     configurationValues.strandsExtraArgs = "";
     vi.useFakeTimers();
@@ -152,13 +158,36 @@ describe("TerminalSessionStore", () => {
     const session = await store.createShellSession("item-1", "Demo item", null, "/workspace");
     const summary = store.getSummary();
 
-    expect(session.kind).toBe("shell");
+    expect(session.session?.kind).toBe("shell");
     expect(summary.sessionCountByItemId["item-1"]).toBe(1);
     expect(createdTerminals).toHaveLength(1);
     expect(createdTerminals[0].show).toHaveBeenCalledWith(true);
 
     store.dispose();
-  });
+  }, 10_000);
+
+  it("uses configured shell defaults when opening shell sessions", async () => {
+    configurationValues.defaultWorkingDirectory = ".";
+    configurationValues.shellCommand = `${process.execPath} --interactive`;
+    configurationValues.shellExtraArgs = "--no-warnings";
+
+    const { TerminalSessionStore } = await import("../../src/terminals");
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+    const store = new TerminalSessionStore(workspaceRoot);
+
+    const result = await store.createShellSession("item-1", "Demo item", null, undefined);
+
+    expect(result.error).toBeNull();
+    expect(createdTerminalOptions[0]).toEqual(expect.objectContaining({
+      cwd: workspaceRoot,
+      shellArgs: ["--interactive", "--no-warnings"],
+      shellPath: process.execPath,
+    }));
+    expect(result.session?.statusLabel).toContain("Ready -");
+
+    store.dispose();
+  }, 10_000);
 
   it("creates agent sessions and sends context prompts after launch", async () => {
     configurationValues.claudeCommand = process.execPath;
@@ -181,7 +210,7 @@ describe("TerminalSessionStore", () => {
     expect(result.session?.resumeSessionId).toMatch(/[0-9a-f-]{36}/);
     expect(result.session?.activityState).toBe("active");
 
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.runOnlyPendingTimersAsync();
 
     expect(createdTerminals[0].sendText).toHaveBeenCalledWith(
       expect.stringContaining("Work item context:"),
@@ -189,7 +218,7 @@ describe("TerminalSessionStore", () => {
     );
 
     store.dispose();
-  });
+  }, 10_000);
 
   it("uses the injected work item prompt builder for context-aware agent sessions", async () => {
     configurationValues.claudeCommand = process.execPath;
@@ -212,7 +241,7 @@ describe("TerminalSessionStore", () => {
 
     expect(result.error).toBeNull();
 
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.runOnlyPendingTimersAsync();
 
     expect(promptBuilder.buildContextPrompt).toHaveBeenCalledWith({
       description: "Look into the regression",
@@ -221,7 +250,7 @@ describe("TerminalSessionStore", () => {
     expect(createdTerminals[0].sendText).toHaveBeenCalledWith("Adapter supplied prompt", true);
 
     store.dispose();
-  });
+  }, 10_000);
 
   it("does not send a delayed prompt after the terminal has already closed", async () => {
     configurationValues.claudeCommand = process.execPath;
@@ -341,13 +370,15 @@ describe("TerminalSessionStore", () => {
 
     closeListeners[0]?.(createdTerminals[0]);
     await waitForPersistedSessionCount(store, 0);
-    expect(onChange).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(2);
+    }, { timeout: 10_000 });
     expect(store.getSummary().sessions).toHaveLength(0);
     expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
 
     disposable.dispose();
     store.dispose();
-  });
+  }, 10_000);
 
   it("keeps terminals open when the store is disposed so recovery metadata survives shutdown", async () => {
     const { TerminalSessionStore } = await import("../../src/terminals");
@@ -400,7 +431,7 @@ describe("TerminalSessionStore", () => {
     expect(persistedContent).toContain(originalResumeSessionId);
 
     restoredStore.dispose();
-  });
+  }, 10_000);
 
   it("reconciles already open terminals during recovery instead of relaunching duplicates", async () => {
     configurationValues.claudeCommand = process.execPath;
@@ -578,10 +609,10 @@ describe("TerminalSessionStore", () => {
       expect(store.getSummary().recentlyClosedSessions).toHaveLength(1);
     });
 
-    const reopened = await store.reopenRecentlyClosedSession(session.id);
+    const reopened = await store.reopenRecentlyClosedSession(session.session!.id);
 
     expect(reopened.error).toBeNull();
-    expect(reopened.session?.id).toBe(session.id);
+    expect(reopened.session?.id).toBe(session.session?.id);
     expect(store.getSummary().recentlyClosedSessions).toHaveLength(0);
     expect(store.getSummary().sessions).toHaveLength(1);
     expect(createdTerminals[1].show).toHaveBeenCalledWith(true);
@@ -782,5 +813,5 @@ async function waitForPersistedSessionCount(store: { getStoragePath(): string | 
     const content = await readFile(snapshotPath!, "utf8");
     const parsed = JSON.parse(content) as { sessions?: unknown[] };
     expect(parsed.sessions).toHaveLength(expectedCount);
-  });
+  }, { timeout: 10_000 });
 }

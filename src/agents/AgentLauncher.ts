@@ -12,56 +12,138 @@ export interface AgentLaunchPlan {
   readonly sessionId: string | null;
 }
 
+export interface ValidatedConfiguredCommand {
+  readonly executable: string | null;
+  readonly normalizedCommand: string;
+  readonly resolved: string;
+  readonly status: "invalid-configuration" | "missing-command" | "ready";
+  readonly statusLabel: string;
+  readonly tokens: readonly string[];
+}
+
 export function buildAgentLaunchPlan(options: {
   readonly contextPrompt: string | null;
   readonly profile: AgentProfile;
   readonly resumeSessionId?: string | null;
 }): AgentLaunchPlan {
-  const commandTokens = splitConfiguredCommand(options.profile.command.trim());
+  const commandValidation = validateConfiguredCommand(options.profile.command);
 
-  if (commandTokens.length === 0) {
-    throw new Error(`No command configured for ${options.profile.label}.`);
+  if (commandValidation.status !== "ready" || !commandValidation.executable) {
+    throw new Error(`${options.profile.label} is not ready. ${commandValidation.statusLabel}`);
   }
 
-  const executable = commandTokens[0];
-  const baseArgs = commandTokens.slice(1);
-  const extraArgs = splitConfiguredCommand(options.profile.extraArgs.trim());
+  const extraArgsValidation = validateConfiguredCommandArgumentString(options.profile.extraArgs);
+  if (extraArgsValidation.error) {
+    throw new Error(`Extra arguments for ${options.profile.label} are invalid. ${extraArgsValidation.error}`);
+  }
+
+  const baseArgs = commandValidation.tokens.slice(1);
   const sessionId = options.profile.kind === "claude" ? options.resumeSessionId ?? crypto.randomUUID() : null;
   const agentArgs = options.profile.kind === "claude" && sessionId ? ["--session-id", sessionId] : [];
 
   return {
-    args: [...baseArgs, ...extraArgs, ...agentArgs],
-    executable,
+    args: [...baseArgs, ...extraArgsValidation.tokens, ...agentArgs],
+    executable: commandValidation.executable,
     initialPrompt: options.profile.usesContext ? options.contextPrompt : null,
     sessionId,
   };
 }
 
-export function getAgentProfileSummaries(profiles: readonly AgentProfile[]): readonly AgentProfileSummary[] {
+export function getAgentProfileSummaries(
+  profiles: readonly AgentProfile[],
+  options: {
+    readonly getWorkingDirectoryLabel?: (profile: AgentProfile) => string;
+    readonly getWorkingDirectoryStatus?: (profile: AgentProfile) => {
+      readonly status: "invalid-configuration" | "ready";
+      readonly statusLabel: string;
+    };
+  } = {},
+): readonly AgentProfileSummary[] {
   return profiles.map((profile) => {
-    const normalizedCommand = profile.command.trim();
-    const resolvedCommand = resolveConfiguredCommand(normalizedCommand);
-    const status = normalizedCommand.length === 0
+    const commandValidation = validateConfiguredCommand(profile.command);
+    const workingDirectoryStatus = options.getWorkingDirectoryStatus?.(profile) ?? {
+      status: "ready" as const,
+      statusLabel: "",
+    };
+    const workingDirectoryLabel = options.getWorkingDirectoryLabel?.(profile) ?? "Workspace default";
+    const status = commandValidation.status === "ready" && workingDirectoryStatus.status !== "ready"
       ? "invalid-configuration"
-      : (resolvedCommand.found ? "ready" : "missing-command");
+      : commandValidation.status;
+    const statusLabel = commandValidation.status === "ready" && workingDirectoryStatus.status !== "ready"
+      ? `Invalid configuration - ${workingDirectoryStatus.statusLabel}`
+      : commandValidation.statusLabel;
 
     return {
       ...profile,
       resumeBehaviorLabel: getResumeBehaviorLabel(profile),
       status,
-      statusLabel: normalizedCommand.length === 0
-        ? "Invalid configuration - add a launch command."
-        : (resolvedCommand.found
-          ? `Ready - ${resolvedCommand.resolved}`
-          : `Missing from PATH - ${normalizedCommand}`),
+      statusLabel,
+      workingDirectoryLabel,
     };
   });
 }
 
+export function validateConfiguredCommand(command: string): ValidatedConfiguredCommand {
+  const normalizedCommand = command.trim();
+  if (!normalizedCommand) {
+    return {
+      executable: null,
+      normalizedCommand,
+      resolved: normalizedCommand,
+      status: "invalid-configuration",
+      statusLabel: "Invalid configuration - add a launch command.",
+      tokens: [],
+    };
+  }
+
+  const parsed = parseConfiguredCommand(command);
+  if (parsed.error) {
+    return {
+      executable: null,
+      normalizedCommand,
+      resolved: normalizedCommand,
+      status: "invalid-configuration",
+      statusLabel: `Invalid configuration - ${parsed.error}`,
+      tokens: parsed.tokens,
+    };
+  }
+
+  const executable = parsed.tokens[0] ?? null;
+  if (!executable) {
+    return {
+      executable: null,
+      normalizedCommand,
+      resolved: normalizedCommand,
+      status: "invalid-configuration",
+      statusLabel: "Invalid configuration - add a launch command.",
+      tokens: parsed.tokens,
+    };
+  }
+
+  const resolvedCommand = resolveCommandInfo(executable);
+  return {
+    executable,
+    normalizedCommand,
+    resolved: resolvedCommand.resolved,
+    status: resolvedCommand.found ? "ready" : "missing-command",
+    statusLabel: resolvedCommand.found
+      ? `Ready - ${resolvedCommand.resolved}`
+      : `Missing from PATH - ${normalizedCommand}`,
+    tokens: parsed.tokens,
+  };
+}
+
 export function splitConfiguredCommand(command: string): string[] {
+  return [...parseConfiguredCommand(command).tokens];
+}
+
+function parseConfiguredCommand(command: string): {
+  readonly error: string | null;
+  readonly tokens: readonly string[];
+} {
   const normalized = command.trim();
   if (!normalized) {
-    return [];
+    return { error: null, tokens: [] };
   }
 
   const tokens: string[] = [];
@@ -119,16 +201,25 @@ export function splitConfiguredCommand(command: string): string[] {
     tokens.push(current);
   }
 
-  return tokens;
+  return {
+    error: quote === null ? null : `command has an unmatched ${quote === '"' ? "double" : "single"} quote.`,
+    tokens,
+  };
 }
 
-function resolveConfiguredCommand(command: string): { readonly found: boolean; readonly resolved: string } {
-  const requested = splitConfiguredCommand(command.trim())[0]?.trim() ?? "";
-  if (!requested) {
-    return { found: false, resolved: requested };
+function validateConfiguredCommandArgumentString(commandArguments: string): {
+  readonly error: string | null;
+  readonly tokens: readonly string[];
+} {
+  if (!commandArguments.trim()) {
+    return { error: null, tokens: [] };
   }
 
-  return resolveCommandInfo(requested);
+  const parsed = parseConfiguredCommand(commandArguments);
+  return {
+    error: parsed.error,
+    tokens: parsed.tokens,
+  };
 }
 
 function resolveCommandInfo(command: string): { readonly found: boolean; readonly resolved: string } {

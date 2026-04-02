@@ -9,6 +9,7 @@ export interface WorkTerminalViewState {
     readonly status: "invalid-configuration" | "missing-command" | "ready";
     readonly statusLabel: string;
     readonly usesContext: boolean;
+    readonly workingDirectoryLabel: string;
   }>;
   readonly boardColumns: ReadonlyArray<{
     readonly id: string;
@@ -41,10 +42,15 @@ export interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
-  readonly profileIssues: ReadonlyArray<{
+  readonly configurationIssues: ReadonlyArray<{
     readonly message: string;
     readonly profileId: string | null;
+    readonly settingPath: string;
   }>;
+  readonly launchConfiguration: {
+    readonly defaultWorkingDirectoryLabel: string;
+    readonly shellStatusLabel: string;
+  };
   readonly selectedItem: {
     readonly blockerReason: string | null;
     readonly column: string;

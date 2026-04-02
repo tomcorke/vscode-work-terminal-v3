@@ -11,6 +11,7 @@ interface WorkTerminalViewState {
     readonly status: "invalid-configuration" | "missing-command" | "ready";
     readonly statusLabel: string;
     readonly usesContext: boolean;
+    readonly workingDirectoryLabel: string;
   }>;
   readonly boardColumns: ReadonlyArray<{
     readonly id: string;
@@ -43,10 +44,15 @@ interface WorkTerminalViewState {
     readonly label: string;
   }>;
   readonly latestWorkItemTitle: string | null;
-  readonly profileIssues: ReadonlyArray<{
+  readonly configurationIssues: ReadonlyArray<{
     readonly message: string;
     readonly profileId: string | null;
+    readonly settingPath: string;
   }>;
+  readonly launchConfiguration: {
+    readonly defaultWorkingDirectoryLabel: string;
+    readonly shellStatusLabel: string;
+  };
   readonly selectedItem: {
     readonly blockerReason: string | null;
     readonly column: string;
@@ -186,6 +192,11 @@ root.addEventListener("click", (event: MouseEvent) => {
 
   if (target.dataset.action === "manage-profiles") {
     vscode.postMessage({ type: "manage-profiles-requested" });
+    return;
+  }
+
+  if (target.dataset.action === "open-settings") {
+    vscode.postMessage({ type: "open-settings-requested" });
     return;
   }
 
@@ -447,6 +458,7 @@ function render(nextState: WorkTerminalViewState): void {
           />
           <button class="ghost-button" type="button" data-action="create">Create work item</button>
           <button class="ghost-button" type="button" data-action="manage-profiles">Manage profiles</button>
+          <button class="ghost-button" type="button" data-action="open-settings">Open settings</button>
           <button class="ghost-button" type="button" data-action="refresh">Refresh view</button>
         </div>
       </header>
@@ -638,6 +650,7 @@ function render(nextState: WorkTerminalViewState): void {
                           <strong>${escapeHtml(profile.label)}</strong>
                           <p>${escapeHtml(`${capitalize(profile.kind)}${profile.usesContext ? " · ctx" : ""}${profile.builtIn ? " · built-in" : ""}`)}</p>
                           <p>${escapeHtml(profile.resumeBehaviorLabel)}</p>
+                          <p class="session-meta">${escapeHtml(profile.workingDirectoryLabel)}</p>
                         </div>
                         <div class="profile-status ${profile.status === "ready" ? "is-ready" : "is-missing"}">${escapeHtml(profile.statusLabel)}</div>
                       </li>
@@ -716,13 +729,19 @@ function render(nextState: WorkTerminalViewState): void {
               }
             </article>
             <article class="card">
-              <h3>Profile diagnostics</h3>
-              ${nextState.profileIssues.length > 0
-                ? `<ul class="profile-issue-list">${nextState.profileIssues
-                  .map((issue) => `<li>${escapeHtml(issue.profileId ? `${issue.profileId}: ${issue.message}` : issue.message)}</li>`)
+              <div class="card-title-row">
+                <h3>Configuration diagnostics</h3>
+                <button class="ghost-button" type="button" data-action="open-settings">Open settings</button>
+              </div>
+              <p class="session-meta">Settings own stable shell and workspace defaults. Manage Profiles owns ordered and custom agent entries.</p>
+              <p class="session-meta">${escapeHtml(`Shell - ${nextState.launchConfiguration.shellStatusLabel}`)}</p>
+              <p class="session-meta">${escapeHtml(`Default working directory - ${nextState.launchConfiguration.defaultWorkingDirectoryLabel}`)}</p>
+              ${nextState.configurationIssues.length > 0
+                ? `<ul class="profile-issue-list">${nextState.configurationIssues
+                  .map((issue) => `<li>${escapeHtml(`${issue.settingPath}: ${issue.profileId ? `${issue.profileId} - ` : ""}${issue.message}`)}</li>`)
                   .join("")}</ul>`
-                : "<p>No profile configuration issues detected.</p>"}
-              <p class="session-meta">Fix issues in Manage Profiles or directly in the workTerminal.agentProfiles setting.</p>
+                : "<p>No configuration issues detected.</p>"}
+              <p class="session-meta">Use VS Code Settings for shell and default working-directory behavior. Use Manage Profiles for agent ordering, command overrides, context behavior, and per-profile working-directory overrides.</p>
             </article>
             <article class="card">
               <h3>Host-managed sessions</h3>
@@ -787,8 +806,12 @@ function createFallbackState(): WorkTerminalViewState {
       done: false,
     },
     columnSummaries: [],
+    configurationIssues: [],
+    launchConfiguration: {
+      defaultWorkingDirectoryLabel: "No workspace default",
+      shellStatusLabel: "VS Code integrated shell default",
+    },
     latestWorkItemTitle: null,
-    profileIssues: [],
     recentlyClosedSessions: [],
     selectedItem: null,
     selectedItemId: null,

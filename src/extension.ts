@@ -48,6 +48,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand("workbench.view.extension.workTerminal");
       await provider.manageProfilesFromPrompt();
     }),
+    vscode.commands.registerCommand("workTerminal.openSettings", async () => {
+      await vscode.commands.executeCommand(
+        "workbench.action.openSettings",
+        "@ext:tomcorke.vscode-work-terminal-v3 workTerminal",
+      );
+    }),
   );
 }
 

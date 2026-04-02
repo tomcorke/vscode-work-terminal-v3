@@ -1,9 +1,9 @@
 import {
+  type ConfigurationIssue,
   getBuiltInAgentProfileById,
   getBuiltInAgentProfiles,
   isAgentKind,
   type AgentProfile,
-  type AgentProfileIssue,
   type AgentProfileId,
   type SerializedAgentProfile,
 } from "./AgentProfile";
@@ -15,7 +15,7 @@ interface ConfigurationLike {
 }
 
 export interface AgentProfileCatalog {
-  readonly issues: readonly AgentProfileIssue[];
+  readonly issues: readonly ConfigurationIssue[];
   readonly profiles: readonly AgentProfile[];
 }
 
@@ -30,21 +30,29 @@ export function loadAgentProfileCatalog(configuration: ConfigurationLike): Agent
 
   if (!Array.isArray(configuredProfiles)) {
     return {
-      issues: [{ message: "workTerminal.agentProfiles must be an array. Using built-in defaults until the setting is fixed.", profileId: null }],
+      issues: [{
+        message: "Must be an array. Using built-in defaults until the setting is fixed.",
+        profileId: null,
+        settingPath: "workTerminal.agentProfiles",
+      }],
       profiles: buildLegacyBackedProfiles(configuration),
     };
   }
 
   const profiles: AgentProfile[] = [];
-  const issues: AgentProfileIssue[] = [];
+  const issues: ConfigurationIssue[] = [];
   const seenIds = new Set<string>();
 
   for (const [index, profileValue] of configuredProfiles.entries()) {
-    const normalized = normalizeSerializedAgentProfile(profileValue);
+    const normalized = normalizeSerializedAgentProfile(profileValue, index);
     if (!normalized.profile) {
+      if (!normalized.issue) {
+        continue;
+      }
       issues.push({
-        message: `Profile entry ${index + 1}: ${normalized.issue}`,
+        message: normalized.issue,
         profileId: normalized.profileId,
+        settingPath: normalized.settingPath,
       });
       continue;
     }
@@ -53,6 +61,7 @@ export function loadAgentProfileCatalog(configuration: ConfigurationLike): Agent
       issues.push({
         message: `Profile "${normalized.profile.id}" is duplicated. Keep each profile id unique.`,
         profileId: normalized.profile.id,
+        settingPath: `workTerminal.agentProfiles[${index}].id`,
       });
       continue;
     }
@@ -79,6 +88,7 @@ export function serializeAgentProfiles(profiles: readonly AgentProfile[]): reado
     kind: profile.kind,
     label: profile.label,
     usesContext: profile.usesContext,
+    workingDirectory: profile.workingDirectory,
   }));
 }
 
@@ -122,40 +132,66 @@ function getLegacyExtraArgsOverride(
   }
 }
 
-function normalizeSerializedAgentProfile(value: unknown): {
-  readonly issue: string | null;
+function normalizeSerializedAgentProfile(value: unknown, index: number): {
+  readonly issue: string;
   readonly profile: AgentProfile | null;
   readonly profileId: AgentProfileId | null;
+  readonly settingPath: string;
 } {
+  const baseSettingPath = `workTerminal.agentProfiles[${index}]`;
   if (!isRecord(value)) {
-    return { issue: "must be an object.", profile: null, profileId: null };
+    return { issue: "Profile entries must be objects.", profile: null, profileId: null, settingPath: baseSettingPath };
   }
 
   const rawId = asTrimmedString(value.id);
   if (!rawId) {
-    return { issue: "is missing a non-empty id.", profile: null, profileId: null };
+    return {
+      issue: "Each profile must include a non-empty id.",
+      profile: null,
+      profileId: null,
+      settingPath: `${baseSettingPath}.id`,
+    };
   }
 
   const rawLabel = asTrimmedString(value.label);
   if (!rawLabel) {
-    return { issue: "must include a non-empty label.", profile: null, profileId: rawId };
+    return {
+      issue: `Profile "${rawId}" must include a non-empty label.`,
+      profile: null,
+      profileId: rawId,
+      settingPath: `${baseSettingPath}.label`,
+    };
   }
 
   const rawKind = asTrimmedString(value.kind);
   if (!rawKind || !isAgentKind(rawKind)) {
     return {
-      issue: `must use one of ${["claude", "copilot", "strands", "custom"].join(", ")} as the kind.`,
+      issue: `Profile "${rawId}" must use one of ${["claude", "copilot", "strands", "custom"].join(", ")} as the kind.`,
       profile: null,
       profileId: rawId,
+      settingPath: `${baseSettingPath}.kind`,
     };
   }
 
   const rawCommand = asTrimmedString(value.command);
   if (!rawCommand) {
     return {
-      issue: "must include a non-empty command.",
+      issue: `Profile "${rawId}" must include a non-empty command.`,
       profile: null,
       profileId: rawId,
+      settingPath: `${baseSettingPath}.command`,
+    };
+  }
+
+  const workingDirectory = typeof value.workingDirectory === "string"
+    ? value.workingDirectory.trim() || undefined
+    : undefined;
+  if (value.workingDirectory !== undefined && typeof value.workingDirectory !== "string") {
+    return {
+      issue: `Profile "${rawId}" must use a string workingDirectory when set.`,
+      profile: null,
+      profileId: rawId,
+      settingPath: `${baseSettingPath}.workingDirectory`,
     };
   }
 
@@ -163,7 +199,7 @@ function normalizeSerializedAgentProfile(value: unknown): {
   const usesContext = typeof value.usesContext === "boolean" ? value.usesContext : false;
 
   return {
-    issue: null,
+    issue: "",
     profile: {
       builtIn: Boolean(getBuiltInAgentProfileById(rawId)),
       command: rawCommand,
@@ -172,8 +208,10 @@ function normalizeSerializedAgentProfile(value: unknown): {
       kind: rawKind,
       label: rawLabel,
       usesContext,
+      workingDirectory,
     },
     profileId: rawId,
+    settingPath: baseSettingPath,
   };
 }
 

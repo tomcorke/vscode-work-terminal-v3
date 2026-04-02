@@ -9,6 +9,7 @@ import {
   type AgentProfile,
   type AgentProfileId,
 } from "../agents";
+import { resolveConfiguredWorkingDirectory } from "../terminals/TerminalLaunchConfiguration";
 import type { TerminalSessionStore } from "../terminals";
 import type {
   WorkItem,
@@ -32,6 +33,7 @@ type WorkTerminalWebviewMessage =
   | { readonly type: "edit-work-item-metadata-requested"; readonly itemId: string }
   | { readonly type: "focus-terminal-requested"; readonly terminalId: string }
   | { readonly type: "manage-profiles-requested" }
+  | { readonly type: "open-settings-requested" }
   | { readonly type: "more-work-item-actions-requested"; readonly itemId: string }
   | { readonly type: "move-work-item-requested"; readonly itemId: string }
   | { readonly type: "open-work-item-source-requested"; readonly itemId: string }
@@ -121,6 +123,11 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
 
         if (message.type === "manage-profiles-requested") {
           await this.manageProfilesFromPrompt();
+          return;
+        }
+
+        if (message.type === "open-settings-requested") {
+          await this.openSettings();
           return;
         }
 
@@ -647,10 +654,14 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async launchShell(itemId: string, itemTitle: string, itemDescription: string | null): Promise<void> {
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const session = await this.terminalStore.createShellSession(itemId, itemTitle, itemDescription, cwd);
+    const result = await this.terminalStore.createShellSession(itemId, itemTitle, itemDescription, undefined);
 
-    await this.refresh(`Opened shell session "${session.label}"`);
+    if (!result.session) {
+      void vscode.window.showWarningMessage(result.error ?? "Unable to launch that shell session.");
+      return;
+    }
+
+    await this.refresh(`Opened shell session "${result.session.label}"`);
   }
 
   public async launchAgent(
@@ -659,9 +670,8 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     itemTitle: string,
     itemDescription: string | null,
   ): Promise<void> {
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const result = await this.terminalStore.createAgentSession({
-      cwd,
+      cwd: undefined,
       itemDescription,
       itemId,
       itemTitle,
@@ -714,8 +724,9 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
       boardColumns: summary.boardColumns,
       collapsedColumns: summary.collapsedColumns,
       columnSummaries: summary.columnSummaries,
+      configurationIssues: terminalSummary.configurationIssues,
       latestWorkItemTitle: summary.latestWorkItemTitle,
-      profileIssues: terminalSummary.profileIssues,
+      launchConfiguration: terminalSummary.launchConfiguration,
       recentlyClosedSessions: terminalSummary.recentlyClosedSessions,
       selectedItem: summary.selectedItem,
       selectedItemId: summary.selectedItemId,
@@ -741,6 +752,13 @@ export class WorkTerminalViewProvider implements vscode.WebviewViewProvider {
     );
     await this.refresh(status);
     void vscode.window.showInformationMessage(status);
+  }
+
+  private async openSettings(): Promise<void> {
+    await vscode.commands.executeCommand(
+      "workbench.action.openSettings",
+      "@ext:tomcorke.vscode-work-terminal-v3 workTerminal",
+    );
   }
 
   private async getStoredWorkItemOrWarn(itemId: string): Promise<WorkItem | null> {
@@ -864,6 +882,24 @@ async function promptForProfile(
     return undefined;
   }
 
+  const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+  const workingDirectory = await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    prompt: `Working directory override for ${label}`,
+    placeHolder: "Leave blank to use the Settings default",
+    value: existingProfile?.workingDirectory ?? "",
+    validateInput: (value) => {
+      return resolveConfiguredWorkingDirectory(
+        value,
+        workspaceRootPath,
+        `workTerminal.agentProfiles.${existingProfile?.id ?? "new"}.workingDirectory`,
+      ).error?.message ?? null;
+    },
+  });
+  if (workingDirectory === undefined) {
+    return undefined;
+  }
+
   const usesContext = await promptForContextBehavior();
   if (usesContext === undefined) {
     return undefined;
@@ -877,6 +913,7 @@ async function promptForProfile(
     kind,
     label: label.trim(),
     usesContext,
+    workingDirectory: workingDirectory.trim() || undefined,
   };
 }
 

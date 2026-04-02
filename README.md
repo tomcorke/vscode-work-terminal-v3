@@ -205,9 +205,20 @@ VS Code does not expose raw terminal output streams or a first-class terminal re
 
 ## Settings
 
+Work Terminal now splits configuration between VS Code Settings and the profile manager UX:
+
+- **VS Code Settings** own stable runtime defaults:
+  - `workTerminal.defaultWorkingDirectory` - optional absolute or workspace-relative fallback used by shell sessions and agent profiles without an override
+  - `workTerminal.shellCommand` - optional custom shell command for `Open shell session`
+  - `workTerminal.shellExtraArgs` - optional extra args appended to the shell command above
+- **Manage Profiles** owns ordered agent profile editing, custom profiles, and built-in overrides saved through `workTerminal.agentProfiles`
+
 Current launch-related settings contributed by the extension:
 
 - `workTerminal.agentProfiles` - optional full profile list for custom profiles, ordering, and built-in overrides
+- `workTerminal.defaultWorkingDirectory`
+- `workTerminal.shellCommand`
+- `workTerminal.shellExtraArgs`
 - `workTerminal.claudeCommand`
 - `workTerminal.claudeExtraArgs`
 - `workTerminal.copilotCommand`
@@ -216,6 +227,8 @@ Current launch-related settings contributed by the extension:
 - `workTerminal.strandsExtraArgs`
 
 If `workTerminal.agentProfiles` is unset, Work Terminal derives the built-in Claude, Copilot, and Strands profiles from the legacy command settings above. Once a profile list is saved from `Work Terminal: Manage Profiles`, that ordered list becomes the source of truth.
+
+Each profile entry may also include an optional `workingDirectory` override. Invalid commands, extra args, or working-directory paths are surfaced in the board diagnostics panel with the exact setting path that needs attention, and the profile launch buttons stay disabled until the affected configuration is fixed.
 
 ## Tests and validation
 

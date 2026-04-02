@@ -6,6 +6,14 @@ import { describe, expect, it } from "vitest";
 
 type PackageManifest = {
   contributes?: {
+    configuration?: {
+      properties?: Record<string, {
+        items?: {
+          properties?: Record<string, unknown>;
+        };
+        type?: string;
+      }>;
+    };
     viewsContainers?: {
       activitybar?: Array<{
         id?: string;
@@ -51,5 +59,15 @@ describe("extension manifest", () => {
     );
 
     expect(excludesMedia).toBe(false);
+  });
+
+  it("contributes the expanded launch configuration settings", () => {
+    const manifest = readManifest();
+    const properties = manifest.contributes?.configuration?.properties ?? {};
+
+    expect(properties["workTerminal.defaultWorkingDirectory"]?.type).toBe("string");
+    expect(properties["workTerminal.shellCommand"]?.type).toBe("string");
+    expect(properties["workTerminal.shellExtraArgs"]?.type).toBe("string");
+    expect(properties["workTerminal.agentProfiles"]?.items?.properties?.workingDirectory).toBeDefined();
   });
 });

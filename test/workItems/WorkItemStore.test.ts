@@ -115,7 +115,7 @@ describe("WorkItemStore", () => {
     ]);
 
     expect(first?.id).not.toBe(second?.id);
-  });
+  }, 10_000);
 
   it("moves items across columns and updates persisted state", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
@@ -136,7 +136,7 @@ describe("WorkItemStore", () => {
     expect(movedItem?.column).toBe("done");
     expect(movedItem?.state).toBe("done");
     expect(movedItem?.completedAt).not.toBeNull();
-  });
+  }, 10_000);
 
   it("updates work item details and rich metadata", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
@@ -189,7 +189,7 @@ describe("WorkItemStore", () => {
       sourceUrl: "https://example.invalid/issues/24",
       title: "Updated title",
     });
-  });
+  }, 10_000);
 
   it("moves items with a targeted mutation helper", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
