@@ -7,18 +7,21 @@ Contributor guide for the VS Code extension port of Work Terminal.
 The codebase is split across three main areas:
 
 ```text
-src/
-  extension.ts                  # Extension entry point
-  agents/
-    AgentLauncher.ts            # Config parsing, executable resolution, launch plans
-    AgentProfile.ts             # Built-in Claude/Copilot profiles and context prompts
-  terminals/
-    TerminalSessionStore.ts     # VS Code terminal creation and in-memory session tracking
-  workItems/
-    WorkItemStore.ts            # Workspace-local JSON persistence with atomic writes
-    createWorkItem.ts           # Work item creation and normalization
-    constants.ts                # State, column, source, and priority enums
-    snapshot.ts                 # Snapshot validation and normalization helpers
+  src/
+    extension.ts                  # Extension entry point
+    agents/
+      AgentLauncher.ts            # Config parsing, executable resolution, launch plans
+      AgentProfile.ts             # Built-in Claude/Copilot/Strands profiles
+    terminals/
+      TerminalSessionStore.ts     # VS Code terminal creation, in-memory session tracking, adapter-backed context prompts
+    workItems/
+      adapter.ts                  # Parser, mover, renderer, prompt, and config interfaces for work-item sources
+      builtInJsonAdapter.ts       # Default workspace-local JSON adapter implementation
+      WorkItemStore.ts            # Adapter-driven persistence orchestration with atomic writes
+      board.ts                    # Board-facing card, column, and summary types
+      createWorkItem.ts           # Work item creation and normalization
+      constants.ts                # State, column, source, and priority enums
+      snapshot.ts                 # Snapshot validation and normalization helpers
   workTerminal/
     WorkTerminalViewProvider.ts # Webview orchestration and message handling
     renderWorkTerminalHtml.ts   # HTML shell, CSP, bootstrap state

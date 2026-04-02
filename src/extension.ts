@@ -2,12 +2,13 @@ import { TerminalSessionStore } from "./terminals";
 import * as vscode from "vscode";
 
 import { WorkTerminalViewProvider } from "./workTerminal/WorkTerminalViewProvider";
-import { WorkItemStore } from "./workItems";
+import { createBuiltInJsonWorkItemSourceAdapter, WorkItemStore } from "./workItems";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
-  const store = new WorkItemStore(workspaceRootPath);
-  const terminalStore = new TerminalSessionStore(workspaceRootPath);
+  const workItemAdapter = createBuiltInJsonWorkItemSourceAdapter();
+  const store = new WorkItemStore(workspaceRootPath, workItemAdapter);
+  const terminalStore = new TerminalSessionStore(workspaceRootPath, workItemAdapter.promptBuilder);
   const recovery = await terminalStore.restorePersistedSessions();
   const provider = new WorkTerminalViewProvider(
     context.extensionUri,

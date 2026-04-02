@@ -47,6 +47,26 @@ interface WorkTerminalViewState {
     readonly message: string;
     readonly profileId: string | null;
   }>;
+  readonly selectedItem: {
+    readonly blockerReason: string | null;
+    readonly column: string;
+    readonly completedAt: string | null;
+    readonly createdAt: string;
+    readonly description: string | null;
+    readonly id: string;
+    readonly isBlocked: boolean;
+    readonly priorityDeadline: string | null;
+    readonly priorityLevel: string;
+    readonly priorityScore: number;
+    readonly sourceCapturedAt: string | null;
+    readonly sourceExternalId: string | null;
+    readonly sourceKind: string;
+    readonly sourcePath: string | null;
+    readonly sourceUrl: string | null;
+    readonly state: string;
+    readonly title: string;
+    readonly updatedAt: string;
+  } | null;
   readonly selectedItemId: string | null;
   readonly recentlyClosedSessions: ReadonlyArray<{
     readonly closedAt: string;
@@ -722,21 +742,13 @@ function render(nextState: WorkTerminalViewState): void {
   restoreFilterInputSnapshot(filterInputSnapshot);
 }
 
-function getSelectedItem(nextState: WorkTerminalViewState): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
-  return (
-    nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === nextState.selectedItemId) ??
-    nextState.boardColumns.flatMap((column) => column.items)[0] ??
-    null
-  );
-}
-
 function getActionableSelectedItem(
   nextState: WorkTerminalViewState,
   query: string,
   visibleItems: WorkTerminalViewState["boardColumns"][number]["items"] | null = null,
 ): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
   if (query.trim().length === 0) {
-    return getSelectedItem(nextState);
+    return nextState.selectedItem;
   }
 
   const actionableItems = visibleItems ?? getVisibleBoardColumns(nextState, query).flatMap((column) => column.items);
@@ -778,6 +790,7 @@ function createFallbackState(): WorkTerminalViewState {
     latestWorkItemTitle: null,
     profileIssues: [],
     recentlyClosedSessions: [],
+    selectedItem: null,
     selectedItemId: null,
     status: "Scaffold ready",
     storagePath: null,

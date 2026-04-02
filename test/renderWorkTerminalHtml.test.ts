@@ -4,6 +4,26 @@ import { renderWorkTerminalHtml } from "../src/workTerminal/renderWorkTerminalHt
 
 describe("renderWorkTerminalHtml", () => {
   it("renders the expected bootstrap shell", () => {
+    const selectedItem = {
+      blockerReason: null,
+      column: "active",
+      completedAt: null,
+      createdAt: "2026-04-01T09:00:00.000Z",
+      description: "Test selection details",
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      isBlocked: false,
+      priorityDeadline: "2026-04-02T10:00:00.000Z",
+      priorityLevel: "medium",
+      priorityScore: 42,
+      sourceCapturedAt: "2026-04-01T09:05:00.000Z",
+      sourceExternalId: "ISSUE-24",
+      sourceKind: "manual",
+      sourcePath: "notes/demo.md",
+      sourceUrl: "https://example.invalid/items/24",
+      state: "active",
+      title: "Demo task",
+      updatedAt: "2026-04-01T10:00:00.000Z",
+    } as const;
     const html = renderWorkTerminalHtml({
       cspSource: "https://example.invalid",
       nonce: "test-nonce",
@@ -25,28 +45,7 @@ describe("renderWorkTerminalHtml", () => {
         boardColumns: [
           {
             id: "active",
-            items: [
-              {
-                blockerReason: null,
-                column: "active",
-                completedAt: null,
-                createdAt: "2026-04-01T09:00:00.000Z",
-                description: "Test selection details",
-                id: "123e4567-e89b-12d3-a456-426614174000",
-                isBlocked: false,
-                priorityDeadline: "2026-04-02T10:00:00.000Z",
-                priorityLevel: "medium",
-                priorityScore: 42,
-                sourceCapturedAt: "2026-04-01T09:05:00.000Z",
-                sourceExternalId: "ISSUE-24",
-                sourceKind: "manual",
-                sourcePath: "notes/demo.md",
-                sourceUrl: "https://example.invalid/items/24",
-                state: "active",
-                title: "Demo task",
-                updatedAt: "2026-04-01T10:00:00.000Z",
-              },
-            ],
+            items: [selectedItem],
             label: "Active",
           },
         ],
@@ -63,9 +62,10 @@ describe("renderWorkTerminalHtml", () => {
         latestWorkItemTitle: "Demo task",
         profileIssues: [],
         recentlyClosedSessions: [],
+        selectedItem,
         selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
-        storagePath: "/tmp/workspace/.work-terminal/work-items.v1.json",
+        storagePath: "/workspace/.work-terminal/work-items.v1.json",
         terminalSessionCountByItemId: {
           "123e4567-e89b-12d3-a456-426614174000": 1,
         },
@@ -106,6 +106,26 @@ describe("renderWorkTerminalHtml", () => {
   });
 
   it("escapes line separator characters in the bootstrapped state", () => {
+    const selectedItem = {
+      blockerReason: "Waiting on API rollout",
+      column: "active",
+      completedAt: null,
+      createdAt: "2026-04-01T09:00:00.000Z",
+      description: "Line\u2028separator and paragraph\u2029separator",
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      isBlocked: false,
+      priorityDeadline: null,
+      priorityLevel: "medium",
+      priorityScore: 7,
+      sourceCapturedAt: null,
+      sourceExternalId: null,
+      sourceKind: "manual",
+      sourcePath: null,
+      sourceUrl: null,
+      state: "active",
+      title: "Demo\u2028task",
+      updatedAt: "2026-04-01T10:00:00.000Z",
+    } as const;
     const html = renderWorkTerminalHtml({
       cspSource: "https://example.invalid",
       nonce: "test-nonce",
@@ -115,28 +135,7 @@ describe("renderWorkTerminalHtml", () => {
         boardColumns: [
           {
             id: "active",
-            items: [
-              {
-                blockerReason: "Waiting on API rollout",
-                column: "active",
-                completedAt: null,
-                createdAt: "2026-04-01T09:00:00.000Z",
-                description: "Line\u2028separator and paragraph\u2029separator",
-                id: "123e4567-e89b-12d3-a456-426614174000",
-                isBlocked: false,
-                priorityDeadline: null,
-                priorityLevel: "medium",
-                priorityScore: 7,
-                sourceCapturedAt: null,
-                sourceExternalId: null,
-                sourceKind: "manual",
-                sourcePath: null,
-                sourceUrl: null,
-                state: "active",
-                title: "Demo\u2028task",
-                updatedAt: "2026-04-01T10:00:00.000Z",
-              },
-            ],
+            items: [selectedItem],
             label: "Active",
           },
         ],
@@ -150,6 +149,7 @@ describe("renderWorkTerminalHtml", () => {
         latestWorkItemTitle: "Demo\u2029task",
         profileIssues: [],
         recentlyClosedSessions: [],
+        selectedItem,
         selectedItemId: "123e4567-e89b-12d3-a456-426614174000",
         status: "Ready",
         storagePath: null,

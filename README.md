@@ -133,12 +133,16 @@ The extension-host side owns VS Code API integration, persistence, terminal life
 
 - `src/extension.ts` - activates the extension, wires commands, stores, and the webview provider
 - `src/workTerminal/WorkTerminalViewProvider.ts` - owns the webview bridge and user action handling
-- `src/workItems/WorkItemStore.ts` - loads and saves `.work-terminal/work-items.v1.json`, with a write queue and corrupt snapshot recovery
+- `src/workItems/adapter.ts` - defines the parser, mover, renderer, prompt-builder, and config interfaces for work-item sources
+- `src/workItems/builtInJsonAdapter.ts` - default workspace-local JSON adapter implementing the work-item source boundary
+- `src/workItems/WorkItemStore.ts` - framework-facing store that delegates parsing, rendering, and mutations to the configured adapter while persisting the current workspace-local snapshot
 - `src/terminals/TerminalSessionStore.ts` - creates shell and agent terminals, persists recoverable session metadata, restores saved sessions, and refocuses terminals
 - `src/terminals/TerminalSessionPersistence.ts` - loads and saves `.work-terminal/terminal-sessions.v1.json`, with atomic writes and corrupt snapshot recovery
 - `src/agents/AgentLauncher.ts` - resolves configured commands, splits quoted arguments, validates executables, and builds launch plans
-- `src/agents/AgentProfile.ts` - defines the built-in Claude, Copilot, and Strands defaults plus the work-item context prompt format
+- `src/agents/AgentProfile.ts` - defines the built-in Claude, Copilot, and Strands defaults
 - `src/agents/AgentProfileConfiguration.ts` - loads profile settings, validates custom profiles, and serializes profile edits
+
+The built-in adapter keeps the current `.work-terminal/work-items.v1.json` behavior as the default source. The extension-host framework now depends on adapter interfaces for snapshot parsing, board rendering, selected-item detail resolution, column movement, context prompting, and source configuration so future task-file-backed adapters can slot in without reworking the board or terminal layers.
 
 ### Webview
 

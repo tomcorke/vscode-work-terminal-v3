@@ -32,12 +32,26 @@ export {
   normalizePersistedWorkItemSnapshot,
 } from "./snapshot";
 export {
-  WorkItemStore,
+  createBuiltInJsonWorkItemSourceAdapter,
+} from "./builtInJsonAdapter";
+export {
+  type WorkItemSourceAdapter,
+  type WorkItemSourceConfig,
+  type WorkItemSourceMover,
+  type WorkItemSourceParser,
+  type WorkItemSourcePromptBuilder,
+  type WorkItemSourceRenderer,
+  type WorkItemPromptContext,
+} from "./adapter";
+export {
   type WorkItemBoardCard,
   type WorkItemBoardColumn,
+  type WorkItemColumnDefinition,
   type WorkItemColumnSummary,
+  type WorkItemSelectionState,
   type WorkItemStoreSummary,
-} from "./WorkItemStore";
+} from "./board";
+export { WorkItemStore, type WorkItemWorkflowStore } from "./WorkItemStore";
 export type {
   CreateWorkItemInput,
   PersistedWorkItemSnapshot,

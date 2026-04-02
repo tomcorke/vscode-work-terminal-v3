@@ -295,4 +295,36 @@ describe("WorkItemStore", () => {
     expect(snapshot.items[abandonedItem!.id]?.state).toBe("abandoned");
     expect(snapshot.items[activeItem!.id]?.state).toBe("done");
   });
+
+  it("resolves selected item detail state through the adapter renderer", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    await store.createWorkItem({ title: "First item" });
+    const second = await store.createWorkItem({
+      description: "Preferred detail selection",
+      priority: {
+        blockerReason: "Waiting on review",
+        isBlocked: true,
+        level: "high",
+        score: 55,
+      },
+      title: "Second item",
+    });
+
+    const selectedSummary = await store.getSummary(second!.id);
+    expect(selectedSummary.selectedItemId).toBe(second!.id);
+    expect(selectedSummary.selectedItem).toMatchObject({
+      blockerReason: "Waiting on review",
+      id: second!.id,
+      isBlocked: true,
+      title: "Second item",
+    });
+
+    const fallbackSummary = await store.getSummary("missing-id");
+    const expectedFallbackId = fallbackSummary.boardColumns.flatMap((column) => column.items)[0]?.id ?? null;
+    expect(fallbackSummary.selectedItemId).toBe(expectedFallbackId);
+    expect(fallbackSummary.selectedItem?.id).toBe(expectedFallbackId);
+  });
 });

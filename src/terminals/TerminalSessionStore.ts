@@ -2,13 +2,16 @@ import * as vscode from "vscode";
 
 import {
   buildAgentLaunchPlan,
-  buildWorkItemContextPrompt,
   getAgentProfileSummaries,
   loadAgentProfileCatalog,
   type AgentProfileId,
   type AgentProfileIssue,
   type AgentProfileSummary,
 } from "../agents";
+import {
+  createBuiltInJsonWorkItemSourceAdapter,
+  type WorkItemSourcePromptBuilder,
+} from "../workItems";
 import {
   type RecentlyClosedTerminalSession,
   TerminalSessionPersistence,
@@ -60,14 +63,19 @@ export class TerminalSessionStore implements vscode.Disposable {
   private readonly monitorInterval: ReturnType<typeof setInterval>;
   private readonly pendingInitialPromptTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly persistence: TerminalSessionPersistence;
+  private readonly promptBuilder: WorkItemSourcePromptBuilder;
   private refreshSessionTrackingPromise: Promise<void> | null = null;
   private recentlyClosedSessions: readonly RecentlyClosedTerminalSession[] = [];
   private readonly sessionsChangedEmitter = new vscode.EventEmitter<void>();
   private readonly sessionsById = new Map<string, StoredTerminalSession>();
   private readonly terminalStateDisposable: vscode.Disposable;
 
-  public constructor(workspaceRootPath: string | null) {
+  public constructor(
+    workspaceRootPath: string | null,
+    promptBuilder: WorkItemSourcePromptBuilder = createBuiltInJsonWorkItemSourceAdapter().promptBuilder,
+  ) {
     this.persistence = new TerminalSessionPersistence(workspaceRootPath);
+    this.promptBuilder = promptBuilder;
     this.closeDisposable = vscode.window.onDidCloseTerminal((terminal) => {
       void this.handleClosedTerminal(terminal);
     });
@@ -196,7 +204,10 @@ export class TerminalSessionStore implements vscode.Disposable {
     }
     const contextPrompt = createOptions.skipInitialPrompt
       ? null
-      : buildWorkItemContextPrompt(options.itemTitle, options.itemDescription);
+      : this.promptBuilder.buildContextPrompt({
+        description: options.itemDescription,
+        title: options.itemTitle,
+      });
     let launchPlan;
     try {
       launchPlan = buildAgentLaunchPlan({
