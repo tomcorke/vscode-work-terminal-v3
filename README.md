@@ -11,6 +11,7 @@ This repository is past the empty scaffold stage and already ships a usable vert
 - create-work-item flow from the extension host
 - board drag-and-drop reordering with persisted cross-column moves
 - persisted column collapse state plus local text filtering in the webview
+- richer selected-item detail metadata plus work-item action flows in the webview
 - per-item shell terminals
 - Claude and GitHub Copilot CLI launch profiles, with optional work-item context prompts
 - workspace-local terminal session persistence in `.work-terminal/terminal-sessions.v1.json`
@@ -28,9 +29,10 @@ It does not yet match the full Obsidian plugin feature set. The current implemen
 - Workspace-local snapshot storage with atomic write-then-rename persistence
 - Drag-and-drop item movement within and across columns, backed by persisted ordering
 - Persisted per-column collapse state and local text filtering in the webview
-- Column counts, latest item summary, and selected-item detail panel in the webview
+- Column counts, latest item summary, and a richer selected-item detail panel in the webview
 - Quick create flow using `Work Terminal: Create Work Item`
-- Work item schema already supports richer metadata such as source info, priority score, blocker state, deadlines, and terminal states that map into the visible board
+- Rich selected-item metadata display for blocker reasons, deadlines, priority scores, source links or paths, and lifecycle timestamps
+- VS Code-native work-item actions from the detail panel, including edit details, edit metadata, move item, split task, open source, delete, and a More actions quick-pick flow
 
 ### Terminal sessions
 
@@ -107,7 +109,7 @@ pnpm package    # check, build, then create a VSIX via vsce
 3. Press `F5` and choose `Run Work Terminal extension`.
 4. In the Extension Development Host window, open the `Work Terminal` activity bar container.
 5. Use `Work Terminal: Create Work Item` or the webview button to seed items in the current workspace.
-6. Select an item, then launch a shell, Claude, or Copilot session.
+6. Select an item, review its metadata in the detail panel, then launch a shell or agent session or run item actions such as move, split, open source, or edit metadata.
 
 Recommended iteration loop:
 

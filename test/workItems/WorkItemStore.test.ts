@@ -138,6 +138,132 @@ describe("WorkItemStore", () => {
     expect(movedItem?.completedAt).not.toBeNull();
   });
 
+  it("updates work item details and rich metadata", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const created = await store.createWorkItem({
+      description: "Original description",
+      priority: {
+        isBlocked: true,
+        level: "medium",
+        score: 20,
+      },
+      source: {
+        kind: "manual",
+      },
+      title: "Original title",
+    });
+
+    const updated = await store.updateWorkItem(created!.id, {
+      description: "Updated description",
+      priority: {
+        blockerReason: "Waiting on API rollout",
+        deadline: "2026-04-03T10:00:00.000Z",
+        isBlocked: true,
+        level: "critical",
+        score: 88,
+      },
+      source: {
+        externalId: "ISSUE-24",
+        kind: "jira",
+        path: "notes/issue-24.md",
+        url: "https://example.invalid/issues/24",
+      },
+      title: "Updated title",
+    });
+
+    expect(updated?.title).toBe("Updated title");
+
+    const summary = await store.getSummary();
+    const updatedCard = summary.boardColumns.find((column) => column.id === "todo")?.items[0];
+    expect(updatedCard).toMatchObject({
+      blockerReason: "Waiting on API rollout",
+      priorityDeadline: "2026-04-03T10:00:00.000Z",
+      priorityLevel: "critical",
+      priorityScore: 88,
+      sourceExternalId: "ISSUE-24",
+      sourceKind: "jira",
+      sourcePath: "notes/issue-24.md",
+      sourceUrl: "https://example.invalid/issues/24",
+      title: "Updated title",
+    });
+  });
+
+  it("moves items with a targeted mutation helper", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const created = await store.createWorkItem({ title: "Move from action menu", state: "todo" });
+
+    const moved = await store.moveItemToColumn(created!.id, "active");
+
+    expect(moved?.column).toBe("active");
+
+    const snapshot = await store.loadSnapshot();
+    expect(snapshot.items[created!.id]?.column).toBe("active");
+    expect(snapshot.itemOrderByColumn.active[0]).toBe(created!.id);
+  });
+
+  it("splits a work item and preserves useful metadata", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const parent = await store.createWorkItem({
+      description: "Parent item context",
+      priority: {
+        blockerReason: "Need platform approval",
+        deadline: "2026-04-05T11:00:00.000Z",
+        isBlocked: true,
+        level: "high",
+        score: 72,
+      },
+      source: {
+        externalId: "ISSUE-24",
+        kind: "jira",
+        url: "https://example.invalid/issues/24",
+      },
+      state: "active",
+      title: "Parent task",
+    });
+
+    const split = await store.splitWorkItem(parent!.id, {
+      description: "   ",
+      title: "Child task",
+    });
+
+    expect(split?.title).toBe("Child task");
+    expect(split?.description).toContain('Split from "Parent task".');
+    expect(split?.priority.level).toBe("high");
+    expect(split?.source.externalId).toBe("ISSUE-24");
+
+    const summary = await store.getSummary();
+    expect(summary.boardColumns.find((column) => column.id === "active")?.items.map((item) => item.title)).toEqual([
+      "Parent task",
+      "Child task",
+    ]);
+  });
+
+  it("deletes work items and removes them from persisted ordering", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
+    tempDirectories.push(workspaceRoot);
+
+    const store = new WorkItemStore(workspaceRoot);
+    const first = await store.createWorkItem({ title: "Keep me" });
+    const second = await store.createWorkItem({ title: "Delete me" });
+
+    const deleted = await store.deleteWorkItem(second!.id);
+
+    expect(deleted).toBe(true);
+
+    const snapshot = await store.loadSnapshot();
+    expect(snapshot.items[second!.id]).toBeUndefined();
+    expect(snapshot.itemOrderByColumn.todo).toEqual([first!.id]);
+  });
+
   it("toggles collapsed column state and persists it", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "work-terminal-store-"));
     tempDirectories.push(workspaceRoot);

@@ -15,11 +15,22 @@ interface WorkTerminalViewState {
   readonly boardColumns: ReadonlyArray<{
     readonly id: string;
     readonly items: ReadonlyArray<{
+      readonly blockerReason: string | null;
+      readonly column: string;
+      readonly completedAt: string | null;
+      readonly createdAt: string;
       readonly description: string | null;
       readonly id: string;
       readonly isBlocked: boolean;
+      readonly priorityDeadline: string | null;
       readonly priorityLevel: string;
+      readonly priorityScore: number;
+      readonly sourceCapturedAt: string | null;
+      readonly sourceExternalId: string | null;
       readonly sourceKind: string;
+      readonly sourcePath: string | null;
+      readonly sourceUrl: string | null;
+      readonly state: string;
       readonly title: string;
       readonly updatedAt: string;
     }>;
@@ -155,6 +166,62 @@ root.addEventListener("click", (event: MouseEvent) => {
 
   if (target.dataset.action === "manage-profiles") {
     vscode.postMessage({ type: "manage-profiles-requested" });
+    return;
+  }
+
+  if (target.dataset.action === "edit-work-item-details") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "edit-work-item-details-requested", itemId: selectedItem.id });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "edit-work-item-metadata") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "edit-work-item-metadata-requested", itemId: selectedItem.id });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "move-work-item") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "move-work-item-requested", itemId: selectedItem.id });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "split-work-item") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "split-work-item-requested", itemId: selectedItem.id });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "open-work-item-source") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "open-work-item-source-requested", itemId: selectedItem.id });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "delete-work-item") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "delete-work-item-requested", itemId: selectedItem.id });
+    }
+    return;
+  }
+
+  if (target.dataset.action === "more-work-item-actions") {
+    const selectedItem = getActionableSelectedItem(state, filterQuery);
+    if (selectedItem) {
+      vscode.postMessage({ type: "more-work-item-actions-requested", itemId: selectedItem.id });
+    }
     return;
   }
 
@@ -412,15 +479,17 @@ function render(nextState: WorkTerminalViewState): void {
                                       data-work-item-id="${escapeHtml(item.id)}"
                                       ${dragEnabled ? 'draggable="true"' : ""}
                                     >
-                                      <span class="work-item-card-title">${escapeHtml(item.title)}</span>
-                                      <span class="work-item-card-meta">
-                                        ${escapeHtml(item.priorityLevel)} priority · ${escapeHtml(item.sourceKind)}
-                                        ${item.isBlocked ? " · blocked" : ""}
-                                      </span>
-                                    </button>
-                                  `,
-                                )
-                                .join("")
+                                       <span class="work-item-card-title">${escapeHtml(item.title)}</span>
+                                       <span class="work-item-card-meta">
+                                         ${escapeHtml(item.priorityLevel)} priority · score ${item.priorityScore} · ${escapeHtml(item.sourceKind)}
+                                         ${item.sourceExternalId ? ` · ${escapeHtml(item.sourceExternalId)}` : ""}
+                                         ${item.priorityDeadline ? ` · due ${escapeHtml(formatTimestamp(item.priorityDeadline))}` : ""}
+                                         ${item.isBlocked ? " · blocked" : ""}
+                                       </span>
+                                     </button>
+                                   `,
+                                 )
+                                 .join("")
                             : `<p class="empty-column">${filterQuery.trim().length > 0 ? "No matching items in this column." : "No items in this column yet."}</p>`
                       }
                     </div>
@@ -456,33 +525,76 @@ function render(nextState: WorkTerminalViewState): void {
               <p>${escapeHtml(
                 selectionHiddenByFilter
                   ? "Clear the filter or select a visible work item to launch sessions."
-                  : (selectedItem?.description ?? "Select a work item to launch shell or agent sessions."),
-              )}</p>
-              ${
-                selectedItem
-                  ? `<div class="card-actions action-grid">
-                      <button class="ghost-button" type="button" data-action="launch-shell">Open shell session</button>
-                      ${nextState.agentProfiles
-                        .map(
-                          (profile) => `
-                            <button
-                              class="ghost-button"
-                              type="button"
-                              data-action="launch-agent"
-                              data-profile-id="${escapeHtml(profile.id)}"
-                              ${profile.status !== "ready" ? "disabled" : ""}
-                              title="${escapeHtml(profile.statusLabel)}"
-                            >
-                              ${escapeHtml(profile.label)}
-                            </button>
-                          `,
-                        )
-                        .join("")}
-                      <span class="pill">${nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0} session${(nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0) === 1 ? "" : "s"}</span>
-                    </div>`
-                  : ""
-              }
-            </article>
+                  : (selectedItem?.description ?? "Select a work item to review metadata, launch sessions, or run work-item actions."),
+               )}</p>
+               ${
+                 selectedItem
+                   ? `
+                     <div class="detail-shell">
+                       <div class="detail-header">
+                         <div>
+                           <strong class="detail-title">${escapeHtml(selectedItem.title)}</strong>
+                           <p class="detail-subtitle">${escapeHtml(describeSelectedItemStatus(selectedItem))}</p>
+                         </div>
+                         <span class="pill">${nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0} session${(nextState.terminalSessionCountByItemId[selectedItem.id] ?? 0) === 1 ? "" : "s"}</span>
+                       </div>
+                       <div class="detail-tag-row">
+                         ${renderTag(selectedItem.priorityLevel, "priority")}
+                         ${renderTag(`score ${selectedItem.priorityScore}`, "score")}
+                         ${renderTag(selectedItem.sourceKind, "source")}
+                         ${selectedItem.sourceExternalId ? renderTag(selectedItem.sourceExternalId, "source-ref") : ""}
+                         ${selectedItem.isBlocked ? renderTag("blocked", "blocked") : ""}
+                         ${selectedItem.priorityDeadline ? renderTag(`due ${formatTimestamp(selectedItem.priorityDeadline)}`, "deadline") : ""}
+                       </div>
+                       <dl class="detail-grid">
+                         ${renderDetailRow("State", capitalize(selectedItem.state))}
+                         ${renderDetailRow("Column", capitalize(selectedItem.column))}
+                         ${renderDetailRow("Deadline", selectedItem.priorityDeadline ? formatTimestamp(selectedItem.priorityDeadline) : null)}
+                         ${renderDetailRow("Blocked by", selectedItem.blockerReason)}
+                         ${renderDetailRow("Source ref", selectedItem.sourceExternalId)}
+                         ${renderDetailRow("Source URL", selectedItem.sourceUrl)}
+                         ${renderDetailRow("Source path", selectedItem.sourcePath)}
+                         ${renderDetailRow("Created", formatTimestamp(selectedItem.createdAt))}
+                         ${renderDetailRow("Updated", formatTimestamp(selectedItem.updatedAt))}
+                         ${renderDetailRow("Completed", selectedItem.completedAt ? formatTimestamp(selectedItem.completedAt) : null)}
+                         ${renderDetailRow("Captured", selectedItem.sourceCapturedAt ? formatTimestamp(selectedItem.sourceCapturedAt) : null)}
+                       </dl>
+                       <div class="card-actions action-grid">
+                         <button class="ghost-button" type="button" data-action="launch-shell">Open shell session</button>
+                         <button class="ghost-button" type="button" data-action="edit-work-item-details">Edit details</button>
+                         <button class="ghost-button" type="button" data-action="move-work-item">Move item</button>
+                         <button class="ghost-button" type="button" data-action="split-work-item">Split task</button>
+                         ${
+                           selectedItem.sourceUrl || selectedItem.sourcePath
+                             ? '<button class="ghost-button" type="button" data-action="open-work-item-source">Open source</button>'
+                             : ""
+                         }
+                         <button class="ghost-button" type="button" data-action="more-work-item-actions">More actions</button>
+                       </div>
+                       <div class="card-actions action-grid">
+                         <button class="ghost-button" type="button" data-action="edit-work-item-metadata">Edit metadata</button>
+                         <button class="ghost-button danger-button" type="button" data-action="delete-work-item">Delete item</button>
+                         ${nextState.agentProfiles
+                           .map(
+                             (profile) => `
+                               <button
+                                 class="ghost-button"
+                                 type="button"
+                                 data-action="launch-agent"
+                                 data-profile-id="${escapeHtml(profile.id)}"
+                                 ${profile.status !== "ready" ? "disabled" : ""}
+                                 title="${escapeHtml(profile.statusLabel)}"
+                               >
+                                 ${escapeHtml(profile.label)}
+                               </button>
+                             `,
+                           )
+                           .join("")}
+                       </div>
+                     </div>`
+                   : ""
+               }
+             </article>
           </div>
         </section>
 
@@ -689,6 +801,19 @@ function describeSession(session: WorkTerminalViewState["terminalSessions"][numb
   return describeSessionDetails(session);
 }
 
+function describeSelectedItemStatus(
+  item: WorkTerminalViewState["boardColumns"][number]["items"][number],
+): string {
+  const details = [`${capitalize(item.column)} column`, `${capitalize(item.state)} state`];
+  if (item.priorityDeadline) {
+    details.push(`due ${formatTimestamp(item.priorityDeadline)}`);
+  }
+  if (item.isBlocked) {
+    details.push("blocked");
+  }
+  return details.join(" · ");
+}
+
 function describeSessionDetails(
   session:
     | WorkTerminalViewState["terminalSessions"][number]
@@ -708,6 +833,15 @@ function describeSessionDetails(
 }
 
 function formatClosedAt(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return new Date(timestamp).toLocaleString();
+}
+
+function formatTimestamp(value: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) {
     return value;
@@ -736,7 +870,18 @@ function getVisibleBoardColumns(nextState: WorkTerminalViewState, query: string)
   return nextState.boardColumns.map((column) => ({
     ...column,
     items: column.items.filter((item) => {
-      const haystacks = [item.title, item.description ?? "", item.priorityLevel, item.sourceKind];
+      const haystacks = [
+        item.title,
+        item.description ?? "",
+        item.priorityLevel,
+        item.sourceKind,
+        item.blockerReason ?? "",
+        item.priorityDeadline ?? "",
+        item.sourceExternalId ?? "",
+        item.sourceUrl ?? "",
+        item.sourcePath ?? "",
+        item.state,
+      ];
       return haystacks.some((value) => value.toLowerCase().includes(normalizedQuery));
     }),
   }));
@@ -768,6 +913,19 @@ function isBoardColumnId(value: string | undefined): value is BoardColumnId {
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function renderTag(value: string, tone: "blocked" | "deadline" | "priority" | "score" | "source" | "source-ref"): string {
+  return `<span class="detail-tag detail-tag-${tone}">${escapeHtml(value)}</span>`;
+}
+
+function renderDetailRow(label: string, value: string | null): string {
+  return `
+    <div class="detail-row">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value ?? "Not set")}</dd>
+    </div>
+  `;
 }
 
 function escapeHtml(value: string): string {
