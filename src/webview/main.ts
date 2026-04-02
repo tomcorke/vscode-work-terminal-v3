@@ -304,7 +304,11 @@ root.addEventListener("click", (event: MouseEvent) => {
   const card = target.closest<HTMLElement>("[data-work-item-id]");
   if (card) {
     const itemId = card.dataset.workItemId ?? null;
-    applyState({ ...state, selectedItemId: itemId });
+    applyState({
+      ...state,
+      selectedItem: findBoardItemById(state, itemId),
+      selectedItemId: itemId,
+    });
     vscode.postMessage({ type: "work-item-selected", itemId });
   }
 });
@@ -748,11 +752,22 @@ function getActionableSelectedItem(
   visibleItems: WorkTerminalViewState["boardColumns"][number]["items"] | null = null,
 ): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
   if (query.trim().length === 0) {
-    return nextState.selectedItem;
+    return findBoardItemById(nextState, nextState.selectedItemId) ?? nextState.selectedItem;
   }
 
   const actionableItems = visibleItems ?? getVisibleBoardColumns(nextState, query).flatMap((column) => column.items);
   return actionableItems.find((item) => item.id === nextState.selectedItemId) ?? null;
+}
+
+function findBoardItemById(
+  nextState: WorkTerminalViewState,
+  itemId: string | null,
+): WorkTerminalViewState["boardColumns"][number]["items"][number] | null {
+  if (!itemId) {
+    return null;
+  }
+
+  return nextState.boardColumns.flatMap((column) => column.items).find((item) => item.id === itemId) ?? null;
 }
 
 function captureFilterInputSnapshot(): FilterInputSnapshot {
